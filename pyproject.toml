@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "herc_analysis"
+version = "0.0.0"
+description = "Analysis tools for Hercules hybrid energy system simulations"
+requires-python = ">=3.11"
+dependencies = [
+    "nlr-hercules",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "plotly>=5.0.0",
+    "pyarrow>=20.0.0",
+    "ruff",
+    "pytest",
+    "h5py",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["herc_analysis"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+
+
