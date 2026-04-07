@@ -216,12 +216,16 @@ class TotalMetrics:
             grp = df.groupby(df["time"] // 86400)
 
         daily_tb4_rt = grp.apply(
-            lambda x: x["lmp_rt_hourly"].nlargest(n_pts_4h).mean()
-            - x["lmp_rt_hourly"].nsmallest(n_pts_4h).mean()
+            lambda x: (
+                x["lmp_rt_hourly"].nlargest(n_pts_4h).mean()
+                - x["lmp_rt_hourly"].nsmallest(n_pts_4h).mean()
+            )
         )
         daily_tb4_da = grp.apply(
-            lambda x: x["lmp_da"].nlargest(n_pts_4h).mean()
-            - x["lmp_da"].nsmallest(n_pts_4h).mean()
+            lambda x: (
+                x["lmp_da"].nlargest(n_pts_4h).mean()
+                - x["lmp_da"].nsmallest(n_pts_4h).mean()
+            )
         )
 
         return {
