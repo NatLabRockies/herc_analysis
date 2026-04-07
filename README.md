@@ -27,6 +27,7 @@ uv pip install -e .
 
 ```bash
 uv sync --all-extras
+uv run pre-commit install
 ```
 
 or create a new environment and install:
@@ -45,8 +46,5 @@ pip install -e .
 ### Pip Based Installation (Developer):
 ```bash
 pip install -e .[docs,develop]
+pre-commit install
 ```
-```
-
-
-
