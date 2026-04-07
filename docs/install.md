@@ -1,8 +1,5 @@
-# herc_analysis
+# Installation instructions
 
-Analysis tools for Hercules hybrid energy system simulations.
-
-Hercules: https://github.com/NatLabRockies/hercules
 
 ## Clone the repository
 
