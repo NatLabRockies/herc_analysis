@@ -542,7 +542,7 @@ class TotalMetrics:
 
         units_row = f"{'':<{month_w}}"
         for _, _, _, _, unit in row_defs:
-            units_row += f"({unit}):>{col_w}"[:col_w].rjust(col_w)
+            units_row += f"({unit})".rjust(col_w)
         print(units_row)
         print("-" * len(header))
 

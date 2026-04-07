@@ -52,7 +52,6 @@ def main():
     plotter.plot_interactive(
         plot_dt=10,
         signal_subplots=[
-            plotter.component_power_subplot("battery"),
             plotter.component_power_subplot("wind_farm"),
         ],
         save_file="outputs/two_scenario_comparison.html",
