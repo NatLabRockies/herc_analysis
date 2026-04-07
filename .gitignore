@@ -25,7 +25,6 @@ wheels/
 venv/
 ENV/
 env/
-uv.lock # Dont commit lock file 
 
 # IDE
 .vscode/
@@ -64,3 +63,4 @@ Thumbs.db
 !stored_hercules_output/**/*.yaml
 !stored_hercules_output/**/*.csv
 
+uv.lock
