@@ -28,6 +28,9 @@ develop = [
     "ruff",
 ]
 
+[tool.uv]
+override-dependencies = ["aiohttp>=3.10"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["herc_analysis"]
 
@@ -60,5 +63,3 @@ indent-style = "space"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-
-
