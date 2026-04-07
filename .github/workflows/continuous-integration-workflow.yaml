@@ -1,4 +1,4 @@
-name: Automated tests & code coverage
+name: Automated tests and formatting
 
 on: [push, pull_request]
 
