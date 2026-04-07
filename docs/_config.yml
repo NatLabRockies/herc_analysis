@@ -1,0 +1,39 @@
+# Book settings
+# Learn more at https://jupyterbook.org/customize/config.html
+
+title: HERC ANALYSIS
+author: National Laboratory of the Rockies
+logo: herc.png
+copyright: '2025'
+only_build_toc_files: false
+exclude_patterns:
+  - not_used/**
+
+# Force re-execution of notebooks on each build.
+# See https://jupyterbook.org/content/execute.html
+execute:
+  execute_notebooks: auto
+
+# Define the name of the latex output file for PDF builds
+latex:
+  latex_documents:
+    targetname: book.tex
+
+# Add a bibtex file so that we can create citations
+bibtex_bibfiles:
+  - references.bib
+
+# Information about where the book exists on the web
+repository:
+  url: https://github.com/NatLabRockies/herc_analysis
+  path_to_book: docs
+  branch: develop
+
+# Add GitHub buttons to your book
+# See https://jupyterbook.org/customize/config.html#add-a-link-to-your-repository
+html:
+  use_issues_button: true
+  use_repository_button: true
+  use_edit_page_button: true
+  analytics:
+    google_analytics_id: G-3ZWL0FJY9N
