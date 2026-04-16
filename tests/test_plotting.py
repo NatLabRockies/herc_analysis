@@ -112,8 +112,8 @@ def test_subplot_plan_structure():
         ],
     )
     ids = [s["id"] for s in plan]
-    assert ids[0] == "plant_power"
-    assert ids[1] == "signal_0"
+    assert ids[0] == "signal_0"
+    assert ids[1] == "plant_power"
     assert ids[2] == "market"
 
 

@@ -19,7 +19,10 @@ from herc_analysis.constants import PTC_PRICE, SignalSubplot
 class PlotHerculesOutput:
     """Interactive Plotly plotting for one or more Hercules scenarios.
 
-    Standard subplots (plant power, market) are toggled via booleans.
+    Standard subplots (plant power, market) are toggled via booleans. When
+    both are enabled, custom signal panels are stacked above them, with plant
+    power above market (market is the bottom row with the shared x-axis
+    label).
     Arbitrary signal subplots are specified with :class:`SignalSubplot`.
     """
 
@@ -158,9 +161,11 @@ class PlotHerculesOutput:
             open_browser (bool, optional): Open file in browser.
                 Defaults to True.
             show_plant_power (bool, optional): Include stacked plant power
-                subplot. Defaults to True.
-            show_market (bool, optional): Include market price subplot.
-                Defaults to True.
+                subplot. When ``show_market`` is also True, plant power sits
+                above market (second row from the bottom). If market is off,
+                plant power is the bottom subplot. Defaults to True.
+            show_market (bool, optional): Include market price subplot. When
+                enabled, it is always the bottom subplot. Defaults to True.
             show_negative_ptc_line (bool, optional): Show -PTC reference.
                 Defaults to True.
             shade_price_area (bool, optional): Shade positive/negative price.
@@ -329,6 +334,11 @@ class PlotHerculesOutput:
     ) -> list[dict]:
         """Build ordered list of subplot specs.
 
+        Row order is top to bottom: custom ``signal_subplots`` first, then
+        plant power (if enabled), then market (if enabled). Market is always
+        the bottom row when it is included; plant power is the lowest row when
+        market is off.
+
         Args:
             show_plant_power (bool): Include plant power subplot.
             show_market (bool): Include market subplot.
@@ -341,15 +351,6 @@ class PlotHerculesOutput:
         """
         plan: list[dict] = []
 
-        if show_plant_power:
-            plan.append(
-                {
-                    "id": "plant_power",
-                    "title": "Plant Power",
-                    "renderer": self._render_plant_power,
-                }
-            )
-
         for idx, ss in enumerate(signal_subplots or []):
             cols = [ss.columns] if isinstance(ss.columns, str) else list(ss.columns)
             title = ss.title or ", ".join(cols)
@@ -360,6 +361,15 @@ class PlotHerculesOutput:
                     "renderer": self._render_signal,
                     "signal_spec": ss,
                     "columns": cols,
+                }
+            )
+
+        if show_plant_power:
+            plan.append(
+                {
+                    "id": "plant_power",
+                    "title": "Plant Power",
+                    "renderer": self._render_plant_power,
                 }
             )
 
