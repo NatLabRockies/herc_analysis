@@ -808,7 +808,9 @@ class PlotHerculesOutput:
         if df["time"].dtype == "object":
             df["time"] = df["time"].astype(float)
         new_time = np.arange(df["time"].min(), df["time"].max(), plot_dt)
-        return interpolate_df(df, new_time)
+        return interpolate_df(
+            df, new_time, interpolation_method="instantaneous_to_instantaneous"
+        )
 
     @staticmethod
     def _legend_positions(n, spacing):
