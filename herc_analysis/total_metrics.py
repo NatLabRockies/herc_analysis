@@ -16,6 +16,8 @@ class TotalMetrics:
     (generator / storage / load), and summed at the plant level.
     """
 
+    _PCT_CHANGE_COLUMN = "% Change"
+
     def __init__(
         self,
         output_analysis,
@@ -567,23 +569,35 @@ class TotalMetrics:
         self,
         display_format: str = "table",
         output_csv: str | None = None,
+        *,
+        include_pct_change: bool = False,
     ) -> pd.DataFrame:
         """Compare metrics across scenarios.
 
         Args:
             display_format (str, optional): 'table' or 'raw'. Defaults to 'table'.
             output_csv (str, optional): Path to save CSV. Defaults to None.
+            include_pct_change (bool, optional): If True, append a column with
+                percent change from the first scenario to the second (exactly two
+                scenarios required). Values look like '+24.15%' (two decimals,
+                signed). Defaults to False.
 
         Returns:
             pd.DataFrame: Comparison table.
 
         Raises:
-            ValueError: If not multi-scenario or metrics not computed.
+            ValueError: If not multi-scenario, metrics not computed, or
+                ``include_pct_change`` is True but the number of scenarios is not 2.
         """
         if not self.is_multi_scenario:
             raise ValueError("Comparison requires multiple OutputAnalysis objects")
         if self.metrics is None:
             raise ValueError("Must call compute_metrics() before comparing scenarios")
+        if include_pct_change and len(self.scenario_names) != 2:
+            raise ValueError(
+                "include_pct_change requires exactly two scenarios; "
+                f"got {len(self.scenario_names)}."
+            )
 
         metric_defs = self._build_comparison_definitions()
 
@@ -598,6 +612,18 @@ class TotalMetrics:
 
         labels = [label for label, _ in metric_defs]
         df_cmp = pd.DataFrame(comparison_data, index=labels)
+
+        if include_pct_change:
+            metrics_list = self.metrics
+            pct_series = []
+            for _label, path in metric_defs:
+                if path == "":
+                    pct_series.append("")
+                else:
+                    v0 = self._extract_path_numeric(metrics_list[0], path)
+                    v1 = self._extract_path_numeric(metrics_list[1], path)
+                    pct_series.append(self._format_pct_change(v0, v1))
+            df_cmp[self._PCT_CHANGE_COLUMN] = pct_series
 
         if display_format == "table":
             self._print_comparison_table(df_cmp)
@@ -659,6 +685,45 @@ class TotalMetrics:
         except (KeyError, TypeError):
             return "N/A"
 
+    @staticmethod
+    def _extract_path_numeric(metrics: dict, path: str) -> float | None:
+        """Read a numeric metric from a dotted path.
+
+        Args:
+            metrics (dict): Root metrics dict.
+            path (str): Dot-separated key path.
+
+        Returns:
+            float | None: Parsed value, or None if missing or non-numeric.
+        """
+        try:
+            val = metrics
+            for key in path.split("."):
+                val = val[key]
+            return float(val)
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _format_pct_change(first: float | None, second: float | None) -> str:
+        """Format relative percent change from first to second value.
+
+        Args:
+            first (float | None): Baseline (first scenario) value.
+            second (float | None): Comparison (second scenario) value.
+
+        Returns:
+            str: Signed percentage like '+24.15%', or 'N/A' when undefined.
+        """
+        if first is None or second is None:
+            return "N/A"
+        if first == 0:
+            if second == 0:
+                return "+0.00%"
+            return "N/A"
+        pct = (second - first) / first * 100.0
+        return f"{pct:+.2f}%"
+
     def _print_comparison_table(self, df_cmp: pd.DataFrame):
         """Print a formatted comparison table.
 
@@ -666,7 +731,9 @@ class TotalMetrics:
             df_cmp (pd.DataFrame): Comparison dataframe.
         """
         col_w = max(12, max(len(n) for n in self.scenario_names) + 2)
-        total_w = 35 + col_w * len(self.scenario_names)
+        has_pct = self._PCT_CHANGE_COLUMN in df_cmp.columns
+        pct_col_w = max(12, len(self._PCT_CHANGE_COLUMN) + 2) if has_pct else 0
+        total_w = 35 + col_w * len(self.scenario_names) + pct_col_w
 
         print("\n" + "=" * total_w)
         print("SCENARIO COMPARISON")
@@ -675,6 +742,8 @@ class TotalMetrics:
         header = f"{'Metric':<35}"
         for s in self.scenario_names:
             header += f"{s:>{col_w}}"
+        if has_pct:
+            header += f"{self._PCT_CHANGE_COLUMN:>{pct_col_w}}"
         print(header)
         print("-" * total_w)
 
@@ -701,6 +770,9 @@ class TotalMetrics:
                     except (ValueError, TypeError):
                         rv = v
                     row += f"{rv:>{col_w}}"
+                if has_pct:
+                    pct_val = df_cmp.loc[label, self._PCT_CHANGE_COLUMN]
+                    row += f"{pct_val:>{pct_col_w}}"
                 print(row)
 
         print("=" * total_w)

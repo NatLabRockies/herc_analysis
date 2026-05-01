@@ -34,7 +34,7 @@ def main():
         scenario_names=SCENARIO_NAMES,
     )
     tm.compute_metrics()
-    tm.compare_scenarios()
+    tm.compare_scenarios(include_pct_change=True)
 
     # Bar chart comparing total plant energy
     fig, ax = tm.plot_compare_scenarios(

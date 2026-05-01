@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from herc_analysis import OutputAnalysis, TotalMetrics
 
@@ -85,3 +86,32 @@ def test_available_metrics():
     paths = tm.available_metrics()
     assert "plant.total_energy_mwh" in paths
     assert "components.wind_farm.energy_mwh" in paths
+
+
+def test_compare_scenarios_include_pct_change_requires_two_scenarios():
+    """include_pct_change raises when there are not exactly two scenarios."""
+    oa = OutputAnalysis("hercules_output.h5")
+    tm = TotalMetrics(
+        [oa, oa, oa],
+        scenario_names=["A", "B", "C"],
+    )
+    tm.compute_metrics(display=False)
+    with pytest.raises(ValueError, match="exactly two"):
+        tm.compare_scenarios(display_format="raw", include_pct_change=True)
+
+
+def test_format_pct_change_signed_two_decimals():
+    """Percent change uses two decimals and an explicit sign."""
+    assert TotalMetrics._format_pct_change(100.0, 124.15) == "+24.15%"
+    assert TotalMetrics._format_pct_change(100.0, 75.5) == "-24.50%"
+
+
+def test_compare_scenarios_include_pct_change_identical_baselines():
+    """Two identical scenarios yield +0.00% on comparable numeric rows."""
+    oa = OutputAnalysis("hercules_output.h5")
+    tm = TotalMetrics([oa, oa], scenario_names=["S1", "S2"])
+    tm.compute_metrics(display=False)
+    df = tm.compare_scenarios(display_format="raw", include_pct_change=True)
+    col = TotalMetrics._PCT_CHANGE_COLUMN
+    assert col in df.columns
+    assert df.loc["  Plant Energy (MWh)", col] == "+0.00%"
