@@ -6,7 +6,6 @@ import webbrowser
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from hercules.utilities import interpolate_df
 from plotly.subplots import make_subplots
 
 from herc_analysis.colors import (
@@ -14,6 +13,7 @@ from herc_analysis.colors import (
     get_component_color,
 )
 from herc_analysis.constants import PTC_PRICE, SignalSubplot
+from herc_analysis.utilities import interpolate_df
 
 
 class PlotHerculesOutput:
