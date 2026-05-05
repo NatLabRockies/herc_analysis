@@ -1,14 +1,84 @@
 """Utilities for herc_analysis."""
 
+from functools import cache
+
 import numpy as np
 import pandas as pd
 import polars as pl
 from hercules.utilities import hercules_float_type
+from timezonefinder import TimezoneFinder
 
 _VALID_INTERPOLATION_METHODS = {
     "averaged_to_instantaneous",
     "instantaneous_to_instantaneous",
 }
+
+
+@cache
+def _get_timezone_finder():
+    """Return a process-wide cached :class:`TimezoneFinder` instance.
+
+    Constructing a :class:`TimezoneFinder` loads the bundled timezone
+    polygon dataset, which is moderately expensive.  Caching the instance
+    keeps repeated lookups cheap.
+
+    Returns:
+        TimezoneFinder: A cached :class:`TimezoneFinder` instance.
+    """
+    return TimezoneFinder()
+
+
+def add_local_time(df, latitude, longitude):
+    """Append a ``time_local`` column derived from ``time_utc``.
+
+    The IANA timezone is determined from the supplied geographic
+    coordinates using :mod:`timezonefinder`, and ``time_utc`` is converted
+    into that timezone to produce ``time_local``.  The resulting column is
+    timezone-aware (call ``.dt.tz_localize(None)`` afterwards if a naive
+    wall-clock representation is desired).
+
+    Args:
+        df (pd.DataFrame): DataFrame containing a ``time_utc`` column with
+            timezone-aware UTC timestamps (e.g. as produced by
+            ``pd.to_datetime(..., utc=True)``).
+        latitude (float): Latitude in decimal degrees.
+        longitude (float): Longitude in decimal degrees.
+
+    Returns:
+        pd.DataFrame: A copy of *df* with an additional ``time_local``
+        column holding timezone-aware timestamps in the local timezone of
+        the supplied coordinates.
+
+    Raises:
+        ValueError: If ``time_utc`` is missing, not timezone-aware, or if
+            no timezone could be resolved for the supplied coordinates.
+        TypeError: If ``time_utc`` is not a datetime dtype.
+    """
+    if "time_utc" not in df.columns:
+        raise ValueError("DataFrame must contain a 'time_utc' column.")
+
+    time_utc = df["time_utc"]
+    if not pd.api.types.is_datetime64_any_dtype(time_utc):
+        raise TypeError(
+            "Column 'time_utc' must be a datetime dtype (e.g. produced by "
+            "pd.to_datetime(..., utc=True))."
+        )
+    if getattr(time_utc.dt, "tz", None) is None:
+        raise ValueError(
+            "Column 'time_utc' must be timezone-aware UTC (e.g. produced by "
+            "pd.to_datetime(..., utc=True))."
+        )
+
+    tz_name = _get_timezone_finder().timezone_at(lat=latitude, lng=longitude)
+    if tz_name is None:
+        raise ValueError(
+            f"Could not determine timezone for coordinates "
+            f"(lat={latitude}, lon={longitude})."
+        )
+
+    df = df.copy()
+    df["time_local"] = time_utc.dt.tz_convert(tz_name)
+    return df
 
 
 def _compute_interval_midpoints(time_values):
