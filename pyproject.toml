@@ -15,6 +15,7 @@ dependencies = [
     "pyarrow>=20.0.0",
     "matplotlib",
     "h5py",
+    "timezonefinder>=8.2.4",
 ]
 
 [project.optional-dependencies]
