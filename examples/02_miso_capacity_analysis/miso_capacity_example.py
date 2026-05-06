@@ -7,6 +7,10 @@ def main():
 
     df = oa.df
 
+    print(df["time_utc"].head())
+
+    print(df["time_utc"].tail())
+
     print(df.columns)
 
     print(compute_capacity_by_tier(df, "wind_farm_power_mw", "north"))
