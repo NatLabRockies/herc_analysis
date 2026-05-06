@@ -12,6 +12,140 @@ RA_HOURS_FEATHER_PATH = (
 _VALID_NORTH_SOUTH = {"north", "south"}
 _TIER_COLUMNS = ("tier_1", "tier_2", "aaoc")
 
+_DAYS_PER_SEASON_LUT = {
+    "summer": 92,
+    "fall": 91,
+    "winter": 90,
+    "spring": 92,
+}
+
+_DAYS_PER_SEASON_LUT_LEAP_YEAR = {
+    "summer": 92,
+    "fall": 91,
+    "winter": 91,
+    "spring": 92,
+}
+
+
+def get_days_per_season(season: str, year: int) -> int:
+    """Get the number of days in a season for a given year."""
+
+    # Determine if the year is a leap year
+    is_leap_year = year % 4 == 0
+    if is_leap_year:
+        return _DAYS_PER_SEASON_LUT_LEAP_YEAR[season]
+    else:
+        return _DAYS_PER_SEASON_LUT[season]
+
+
+def compute_battery_availability(
+    df: pd.DataFrame,
+    component_name: str,
+    battery_power_column: str,
+    battery_soc_column: str,
+    battery_rated_power: float,
+    battery_rated_energy: float,
+    battery_min_soc: float,
+    eta_discharge: float = 0.9,
+    return_df_hour: bool = False,
+) -> pd.DataFrame:
+    """Compute the battery availability for a given dataframe.
+
+    Adds back to df as a new column: {component_name}_availability
+    Given a batteries power output and SOC overtime, determine the availablity.
+    Note the availability is computed hourly but will upsampled back to the
+    original time resolution.
+
+    Args:
+        df (pd.DataFrame): DataFrame containing the battery power and SOC columns.
+            Must contain the columns:
+            - time_utc: timezone-aware UTC datetime
+            - battery_power_column: battery power output [kW]
+            - battery_soc_column: battery SOC [0-1]
+
+        component_name (str): Name of the component.
+        battery_power_column (str): Name of the battery power column.
+        battery_soc_column (str): Name of the battery SOC column.
+        battery_rated_power (float): Rated power of the battery [kW].
+        battery_rated_energy (float): Rated energy of the battery [kWh].
+        battery_min_soc (float): Minimum SOC of the battery [0-1].
+        eta_discharge (float): Discharge efficiency of the battery [0-1].
+        return_df_hour (bool, optional): If True, return the dataframe with the hourly values.
+            Defaults to False.
+
+    Returns:
+        pd.DataFrame: DataFrame with the battery availability column added.
+    """
+
+    # Check that the dataframe contains the required columns
+    if "time_utc" not in df.columns:
+        raise ValueError("DataFrame must contain a 'time_utc' column.")
+    if battery_power_column not in df.columns:
+        raise ValueError(f"DataFrame must contain a '{battery_power_column}' column.")
+    if battery_soc_column not in df.columns:
+        raise ValueError(f"DataFrame must contain a '{battery_soc_column}' column.")
+
+    # Make a copy of the dataframe
+    df_hour = df.copy()
+
+    # Floor the time_utc column to the hour
+    df_hour["time_utc"] = df_hour["time_utc"].dt.floor("h")
+
+    # Transform the battery power and SOC columns to hourly values
+    df_hour["power_hourly"] = (
+        df_hour[battery_power_column].groupby(df_hour["time_utc"]).transform("mean")
+    )
+
+    # For the capacity calculation, use the SOC at the start of each hour
+    # rather than the mean SOC over the hour.  Mean SOC systematically
+    # underestimates the energy available "for the next hour" whenever the
+    # battery is discharging (mean < start-of-hour value), which would in
+    # turn underestimate the output potential.
+    df_hour["soc_hour_start"] = (
+        df_hour[battery_soc_column].groupby(df_hour["time_utc"]).transform("first")
+    )
+
+    # Compute net output
+    df_hour["battery_net_output"] = df_hour["power_hourly"].clip(lower=0.0)
+
+    # Compute grid side deliverable energy [kWh] from the SOC at the start
+    # of the hour.
+    df_hour["grid_side_deliverable_energy"] = (
+        (df_hour["soc_hour_start"] - battery_min_soc)
+        * battery_rated_energy
+        * eta_discharge
+    )
+    df_hour["grid_side_deliverable_energy"] = df_hour[
+        "grid_side_deliverable_energy"
+    ].clip(lower=0.0)
+
+    # Compute the output potential power [kW].
+    #
+    # Note on units: ``grid_side_deliverable_energy`` is in kWh and
+    # ``battery_rated_power`` is in kW.  The numerical ``min`` only yields a
+    # power because the analysis window is exactly one hour, so kWh and kW
+    # share the same number.  Concretely we are computing
+    # ``min(rated_power, grid_side_deliverable_energy / 1h)``.  If this
+    # function is ever generalized to non-hourly windows, divide the energy
+    # by the window length explicitly.
+    df_hour["output_potential_power"] = np.minimum(
+        df_hour["grid_side_deliverable_energy"], battery_rated_power
+    )
+
+    # Compute the availability
+    df_hour["battery_availability"] = np.maximum(
+        df_hour["output_potential_power"], df_hour["battery_net_output"]
+    )
+
+    # Add the battery availability column to the original dataframe
+    df[f"{component_name}_availability"] = df_hour["battery_availability"]
+
+    # If return_df_hour is True, return the dataframe with the hourly values
+    if return_df_hour:
+        return df, df_hour
+    else:
+        return df
+
 
 def limit_hourly_availability_contributions(
     df: pd.DataFrame,
