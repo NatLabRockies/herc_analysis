@@ -332,7 +332,7 @@ def compute_isac_dict(
     averaging ``availability_column`` within each clock hour, and the
     result is inner-joined to the bundled MISO RA-hour reference table
     on ``time_utc``.  Hours with no entry in the reference table are
-    dropped, as are years with fewer than ``24 * 360`` classified hours
+    dropped, as are years with fewer than ``24 * 275`` classified hours
     (a "near-full-year" filter).
 
     MISO publishes two independent reliability flags per hour: a
@@ -425,7 +425,7 @@ def compute_isac_dict(
     years = [
         year
         for year in df_merge["year"].unique()
-        if len(df_merge[df_merge["year"] == year]) > 24 * 360
+        if len(df_merge[df_merge["year"] == year]) > 24 * 275
     ]
 
     # Season-independent AAOC mean: average over every AAOC hour in the
