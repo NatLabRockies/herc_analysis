@@ -1,5 +1,6 @@
 """Module for computing MISO capacity from a HERCULES output simulation."""
 
+import calendar
 from pathlib import Path
 
 import numpy as np
@@ -10,8 +11,48 @@ RA_HOURS_FEATHER_PATH = (
 )
 
 _VALID_NORTH_SOUTH = {"north", "south"}
-_TIER_COLUMNS = ("tier_1", "tier_2", "aaoc")
 
+
+def _coerce_to_bool_mask(series: pd.Series, column_name: str) -> pd.Series:
+    """Coerce an RA-hour flag column to a clean boolean mask.
+
+    Accepts either a true ``bool`` dtype column or a numeric column whose
+    values are all in ``{0, 1}`` (NaN is treated as ``False``).  Any
+    other dtype, or any non-{0, 1} numeric value, raises an error.
+
+    Args:
+        series (pd.Series): Column of RA-hour flags to coerce.
+        column_name (str): Original column name, used only for error
+            messages.
+
+    Returns:
+        pd.Series: Boolean Series aligned to ``series``.
+
+    Raises:
+        TypeError: If ``series`` is neither bool nor numeric.
+        ValueError: If ``series`` is numeric but contains values other
+            than 0 or 1 (NaN is allowed and is mapped to ``False``).
+    """
+    if pd.api.types.is_bool_dtype(series):
+        return series.fillna(False).astype(bool)
+    if pd.api.types.is_numeric_dtype(series):
+        unique_values = set(pd.unique(series.dropna()))
+        if not unique_values.issubset({0, 1}):
+            raise ValueError(
+                f"Column '{column_name}' must contain only 0/1 or "
+                f"True/False values; got {sorted(unique_values)}."
+            )
+        return series.fillna(0).astype(bool)
+    raise TypeError(
+        f"Column '{column_name}' must be a bool or 0/1 numeric column, "
+        f"got dtype {series.dtype}."
+    )
+
+
+# MISO season -> day count.  Seasons follow the meteorological convention
+# used internally by HERCULES: spring = Mar-May, summer = Jun-Aug,
+# fall = Sep-Nov, winter = Dec(year-1) + Jan-Feb(year), so the leap day
+# (Feb 29 of ``year``) lengthens the winter that *ends* in ``year``.
 _DAYS_PER_SEASON_LUT = {
     "summer": 92,
     "fall": 91,
@@ -28,14 +69,28 @@ _DAYS_PER_SEASON_LUT_LEAP_YEAR = {
 
 
 def get_days_per_season(season: str, year: int) -> int:
-    """Get the number of days in a season for a given year."""
+    """Get the number of days in a MISO season for a given year.
 
-    # Determine if the year is a leap year
-    is_leap_year = year % 4 == 0
-    if is_leap_year:
+    Uses the Gregorian leap-year rule: a year is a leap year iff it is
+    divisible by 4, except century years which must also be divisible by
+    400.  In a leap year ``winter`` (Dec(year-1) + Jan-Feb(year)) gains
+    the extra day; the other seasons are unchanged.
+
+    Args:
+        season (str): MISO season name. Must be one of ``"spring"``,
+            ``"summer"``, ``"fall"``, ``"winter"``.
+        year (int): Calendar year used to decide whether the leap-year
+            day count applies.
+
+    Returns:
+        int: Number of days in ``season`` for ``year``.
+
+    Raises:
+        KeyError: If ``season`` is not one of the four supported values.
+    """
+    if calendar.isleap(year):
         return _DAYS_PER_SEASON_LUT_LEAP_YEAR[season]
-    else:
-        return _DAYS_PER_SEASON_LUT[season]
+    return _DAYS_PER_SEASON_LUT[season]
 
 
 def compute_battery_availability(
@@ -46,22 +101,25 @@ def compute_battery_availability(
     battery_rated_power: float,
     battery_rated_energy: float,
     battery_min_soc: float,
-    eta_discharge: float = 0.9,
+    eta_discharge: float,
     return_df_hour: bool = False,
-) -> pd.DataFrame:
+) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
     """Compute the battery availability for a given dataframe.
 
-    Adds back to df as a new column: {component_name}_availability
-    Given a batteries power output and SOC overtime, determine the availablity.
-    Note the availability is computed hourly but will upsampled back to the
-    original time resolution.
+    Returns a copy of ``df`` with a new column ``{component_name}_availability``.
+    Given a battery's power output and SOC over time, determine its
+    availability for the next hour.  The availability is computed hourly
+    and then broadcast back ("upsampled") to the input's original
+    sub-hourly resolution by repeating each hour's value across all of
+    its constituent rows.
 
     Args:
-        df (pd.DataFrame): DataFrame containing the battery power and SOC columns.
-            Must contain the columns:
-            - time_utc: timezone-aware UTC datetime
-            - battery_power_column: battery power output [kW]
-            - battery_soc_column: battery SOC [0-1]
+        df (pd.DataFrame): DataFrame containing the battery power and SOC
+            columns.  Must contain the columns:
+
+            - ``time_utc``: timezone-aware UTC datetime
+            - ``battery_power_column``: battery power output [kW]
+            - ``battery_soc_column``: battery SOC [0-1]
 
         component_name (str): Name of the component.
         battery_power_column (str): Name of the battery power column.
@@ -70,11 +128,17 @@ def compute_battery_availability(
         battery_rated_energy (float): Rated energy of the battery [kWh].
         battery_min_soc (float): Minimum SOC of the battery [0-1].
         eta_discharge (float): Discharge efficiency of the battery [0-1].
-        return_df_hour (bool, optional): If True, return the dataframe with the hourly values.
-            Defaults to False.
+        return_df_hour (bool, optional): If True, also return the
+            intermediate hourly working DataFrame (which contains the
+            per-hour SOC, energy, and availability columns).  Defaults
+            to False.
 
     Returns:
-        pd.DataFrame: DataFrame with the battery availability column added.
+        pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]: A copy of
+        ``df`` with the ``{component_name}_availability`` column added.
+        If ``return_df_hour`` is True, a tuple ``(df_return, df_hour)``
+        is returned instead, where ``df_hour`` is the hourly
+        intermediate DataFrame.
     """
 
     # Check that the dataframe contains the required columns
@@ -138,13 +202,14 @@ def compute_battery_availability(
     )
 
     # Add the battery availability column to the original dataframe
-    df[f"{component_name}_availability"] = df_hour["battery_availability"]
+    df_return = df.copy()
+    df_return[f"{component_name}_availability"] = df_hour["battery_availability"]
 
     # If return_df_hour is True, return the dataframe with the hourly values
     if return_df_hour:
-        return df, df_hour
+        return df_return, df_hour
     else:
-        return df
+        return df_return
 
 
 def limit_hourly_availability_contributions(
@@ -255,39 +320,37 @@ def limit_hourly_availability_contributions(
     return df_limited
 
 
-def compute_capacity_by_tier(
+def compute_isac_dict(
     df: pd.DataFrame,
     availability_column: str,
     north_south: str,
     verbose: bool = False,
-) -> pd.DataFrame:
-    """Compute mean availability by season, year, and MISO RA-hour tier.
+) -> dict[str, dict[str, float]]:
+    """Compute MISO ISAC tier statistics for each season.
 
-    Each timestamp in ``df`` is associated with a MISO season and RA-hour
-    classification via a backward as-of merge against the bundled MISO
-    RA-hour reference table (one row per hour, hour-beginning UTC).  The
-    most recent reference row whose ``time_utc`` is at or before the
-    timestamp wins; this correctly handles ``df`` resolutions finer than
-    one hour.
+    The input ``df`` is first floor-aggregated to hour-beginning UTC by
+    averaging ``availability_column`` within each clock hour, and the
+    result is inner-joined to the bundled MISO RA-hour reference table
+    on ``time_utc``.  Hours with no entry in the reference table are
+    dropped, as are years with fewer than ``24 * 360`` classified hours
+    (a "near-full-year" filter).
 
-    MISO publishes two independent reliability flags per hour: a seasonal
-    RA-hour flag and an annual RA-hour (AAOC) flag.  For each
-    ``(season, year)`` combination the following statistics over
-    ``availability_column`` are reported:
+    MISO publishes two independent reliability flags per hour: a
+    seasonal RA-hour flag (``ra_<region>``) and an annual RA-hour /
+    AAOC flag (``aaoc_<region>``).  For each season the following
+    statistics over ``availability_column`` are reported, pooled across
+    every kept year:
 
     - ``tier_1``: mean over hours that are NOT seasonal RA hours.
-    - ``tier_2``: mean over seasonal RA hours.  If fewer than 65
-      seasonal RA hours are present for the ``(season, year)``
-      combination, the values are right-padded up to 65 entries using
-      that year's AAOC mean before averaging.
-    - ``aaoc``: mean over AAOC hours for the year (season-independent).
+    - ``tier_2``: mean over seasonal RA hours, pooled across years.  For
+      any year with fewer than 65 seasonal RA hours, that year's
+      contribution is right-padded up to 65 entries using that year's
+      AAOC mean before being concatenated.
     - ``ISAC``: weighted score ``0.2 * tier_1 + 0.8 * tier_2``.
-    - ``all``: mean over every classified hour in the
-      ``(season, year)`` combination.
-
-    Rows in ``df`` whose ``time_utc`` falls before the first hour of the
-    RA-hour reference table are silently dropped because they cannot be
-    classified.
+    - ``aaoc``: mean over every AAOC hour in the kept years
+      (season-independent; identical across seasons).
+    - ``all``: mean over every classified hour in the season (across
+      kept years).
 
     Args:
         df (pd.DataFrame): DataFrame containing at minimum the columns
@@ -302,17 +365,19 @@ def compute_capacity_by_tier(
             Defaults to False.
 
     Returns:
-        pd.DataFrame: Wide DataFrame whose columns are ``(season, year)``
-        tuples and whose index is ``["tier_1", "tier_2", "aaoc", "ISAC",
-        "all"]``.  Each column holds the statistics described above for
-        that ``(season, year)`` combination.
+        dict[str, dict[str, float]]: Nested mapping from season name to
+        a sub-dict with keys ``"tier_1"``, ``"tier_2"``, ``"ISAC"``,
+        ``"aaoc"``, and ``"all"``, each holding the statistics described
+        above.
 
     Raises:
-        ValueError: If required columns are missing, ``time_utc`` is not
-            timezone-aware, or ``north_south`` is invalid.
-        TypeError: If ``time_utc`` is not a datetime dtype.
-        KeyError: If the ``(season, year)`` combination has no AAOC
-            hours available for that year.
+        ValueError: If required columns are missing or ``north_south``
+            is invalid, or if the ``ra_<region>`` / ``aaoc_<region>``
+            reference columns contain non-{0, 1} values.
+        TypeError: If the ``ra_<region>`` / ``aaoc_<region>`` reference
+            columns are neither bool nor numeric.
+        KeyError: If a season/year combination needs AAOC padding but
+            that year has no AAOC hours available.
     """
     if "time_utc" not in df.columns:
         raise ValueError("DataFrame must contain a 'time_utc' column.")
@@ -324,101 +389,107 @@ def compute_capacity_by_tier(
             f"got {north_south!r}."
         )
 
-    time_utc = df["time_utc"]
-    if not pd.api.types.is_datetime64_any_dtype(time_utc):
-        raise TypeError(
-            "Column 'time_utc' must be a datetime dtype (e.g. produced by "
-            "pd.to_datetime(..., utc=True))."
-        )
-    if getattr(time_utc.dt, "tz", None) is None:
-        raise ValueError(
-            "Column 'time_utc' must be timezone-aware UTC (e.g. produced by "
-            "pd.to_datetime(..., utc=True))."
-        )
+    # Compute the hourly averages
+    df_hourly = (
+        df.groupby(df["time_utc"].dt.floor("h"))[availability_column]
+        .mean()
+        .reset_index()
+    )
 
+    # Load the RA-hour reference table
+    df_ra = pd.read_feather(RA_HOURS_FEATHER_PATH)
+
+    # Determine the RA and AAOC columns
     ra_column = f"ra_{north_south}"
     aaoc_column = f"aaoc_{north_south}"
 
-    df_ra = pd.read_feather(RA_HOURS_FEATHER_PATH)
+    df_merge = pd.merge(df_hourly, df_ra, on="time_utc", how="inner")
 
-    # merge_asof requires both inputs to be sorted on the join key.
-    df_left = (
-        df[["time_utc", availability_column]]
-        .sort_values("time_utc")
-        .reset_index(drop=True)
-    )
-    df_right = (
-        df_ra[["time_utc", "season", ra_column, aaoc_column]]
-        .sort_values("time_utc")
-        .reset_index(drop=True)
-    )
+    # Coerce flag columns to clean booleans so callers can supply either
+    # bool or 0/1 numeric reference tables without surprises.
+    df_merge[ra_column] = _coerce_to_bool_mask(df_merge[ra_column], ra_column)
+    df_merge[aaoc_column] = _coerce_to_bool_mask(df_merge[aaoc_column], aaoc_column)
 
-    df_merge = pd.merge_asof(
-        df_left,
-        df_right,
-        on="time_utc",
-        direction="backward",
-    )
-
-    # Drop rows that precede the start of the reference table; they have
-    # no season/RA classification and would otherwise pollute the means.
-    df_merge = df_merge.dropna(subset=["season"]).copy()
     df_merge["year"] = df_merge["time_utc"].dt.year
 
-    # First compute the AAOC means.
-    df_aaoc = df_merge[df_merge[aaoc_column]]
-    df_aaoc_means = df_aaoc.groupby(["year"])[availability_column].mean().rename("aaoc")
+    # Per-year AAOC means, used both for tier_2 padding and for the
+    # season-independent "aaoc" output entry.
+    aaoc_means = (
+        df_merge[df_merge[aaoc_column]]
+        .groupby("year")[availability_column]
+        .mean()
+        .to_dict()
+    )
 
-    # Convert to a dictionary with keys "year"
-    aaoc_means = df_aaoc_means.to_dict()
+    seasons = df_merge["season"].unique()
+    years = [
+        year
+        for year in df_merge["year"].unique()
+        if len(df_merge[df_merge["year"] == year]) > 24 * 360
+    ]
 
-    result_dict = {}
+    # Season-independent AAOC mean: average over every AAOC hour in the
+    # kept years.  Identical across seasons, but emitted per season for
+    # convenience.
+    aaoc_mask_kept = df_merge[aaoc_column] & df_merge["year"].isin(years)
+    aaoc_overall_mean = float(df_merge.loc[aaoc_mask_kept, availability_column].mean())
 
-    # Now loop over season, year combinations in df_merge
-    for season, year in (
-        df_merge[["season", "year"]].drop_duplicates().itertuples(index=False)
-    ):
-        if verbose:
-            print(f"Processing season {season}, year {year}")
-        df_subset = df_merge[df_merge["season"] == season]
-        df_subset = df_subset[df_subset["year"] == year]
+    result_dict: dict[str, dict[str, float]] = {}
 
-        # First get the Tier 2 dataframe
-        df_tier_2_values = df_subset[df_subset[ra_column]][availability_column].values
+    for season in seasons:
+        df_season = df_merge[df_merge["season"] == season]
+        tier_1_values = np.array([])
+        tier_2_values = np.array([])
 
-        # If df_tier_2 has < 65 rows, pad with the aaoc mean for that year until it has 65 rows
-        if len(df_tier_2_values) < 65:
-            df_tier_2_values = np.pad(
-                df_tier_2_values,
-                (0, 65 - len(df_tier_2_values)),
-                mode="constant",
-                constant_values=aaoc_means[year],
-            )
+        for year in years:
+            df_subset = df_season[df_season["year"] == year]
 
-        # Now get the mean value for Tier 2
-        tier_2_mean = np.mean(df_tier_2_values)
+            tier_2_year = df_subset.loc[
+                df_subset[ra_column], availability_column
+            ].values
+            if len(tier_2_year) < 65:
+                tier_2_year = np.pad(
+                    tier_2_year,
+                    (0, 65 - len(tier_2_year)),
+                    mode="constant",
+                    constant_values=aaoc_means[year],
+                )
 
-        # Now get the tier 1 mean (no padding required)
-        tier_1_mean = np.mean(
-            df_subset[~df_subset[ra_column]][availability_column].values
+            tier_1_year = df_subset.loc[
+                ~df_subset[ra_column], availability_column
+            ].values
+
+            tier_1_values = np.concatenate([tier_1_values, tier_1_year])
+            tier_2_values = np.concatenate([tier_2_values, tier_2_year])
+
+            if verbose:
+                print(
+                    f"[compute_isac_dict] season={season} year={year}: "
+                    f"tier_1_n={len(tier_1_year)} tier_2_n={len(tier_2_year)}"
+                )
+
+        tier_1_mean = (
+            float(np.mean(tier_1_values)) if tier_1_values.size else float("nan")
         )
-
-        # Compute the ISAC value via weighted sum
+        tier_2_mean = (
+            float(np.mean(tier_2_values)) if tier_2_values.size else float("nan")
+        )
         isac_value = 0.2 * tier_1_mean + 0.8 * tier_2_mean
 
-        # Finally compute the mean over all data
-        all_mean = np.mean(df_subset[availability_column].values)
+        # Per-season "all" mean: every classified hour in this season,
+        # across kept years (matches the docstring's wording).
+        season_mask = df_season["year"].isin(years)
+        all_mean = float(df_season.loc[season_mask, availability_column].mean())
 
-        # Add the results to the result_dict
-        result_dict[season, year] = {
+        result_dict[season] = {
             "tier_1": tier_1_mean,
             "tier_2": tier_2_mean,
-            "aaoc": aaoc_means[year],
             "ISAC": isac_value,
+            "aaoc": aaoc_overall_mean,
             "all": all_mean,
         }
 
-    return pd.DataFrame(result_dict)
+    return result_dict
 
 
 if __name__ == "__main__":
