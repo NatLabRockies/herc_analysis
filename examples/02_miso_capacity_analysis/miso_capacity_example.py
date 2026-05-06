@@ -1,5 +1,7 @@
+import pandas as pd
+
 from herc_analysis import OutputAnalysis
-from herc_analysis.miso_capacity import compute_capacity_by_tier
+from herc_analysis.miso_capacity import compute_isac_dict
 
 
 def main():
@@ -13,7 +15,7 @@ def main():
 
     print(df.columns)
 
-    print(compute_capacity_by_tier(df, "wind_farm_power_mw", "north"))
+    print(pd.DataFrame(compute_isac_dict(df, "wind_farm_power_mw", "north")))
 
 
 if __name__ == "__main__":
