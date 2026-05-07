@@ -105,7 +105,7 @@ def main():
 
     # Log the names of the files read and the date this was run into a log file
     with open(LOG_PATH, "a") as f:
-        f.write(f"Files read: {files}\n")
+        f.write(f"Files read: {', '.join([f.name for f in files])}\n")
         f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Rows: {len(df)}\n")
         f.write(f"Time range: {df['time_utc'].min()}  ->  {df['time_utc'].max()}\n")
