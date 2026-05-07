@@ -55,8 +55,8 @@ Thumbs.db
 *.json
 *.yaml
 *.yml
-*.txt
 *log
+*.xlsx
 
 # Allow stored hercules output data to be committed
 !stored_hercules_output/**/*.h5
