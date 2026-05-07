@@ -77,6 +77,231 @@ def get_acp(season: str, zone: int, year: int) -> float:
         ) from err
 
 
+# MISO resource-class UCAP totals in MW, indexed as
+# RESOURCE_CLASS_UCAP_MW[resource_class][season].  Values reflect the
+# system-level Unforced Capacity (UCAP) attributed to each resource class
+# in MISO's seasonal capacity construct.  Source: MISO PY 27-28 RA Hours
+# (Fall) reference workbook.
+RESOURCE_CLASS_UCAP_MW: dict[str, dict[str, float]] = {
+    "biomass": {"summer": 386.0, "fall": 360.0, "winter": 367.0, "spring": 343.0},
+    "coal": {
+        "summer": 31022.0,
+        "fall": 25352.0,
+        "winter": 24389.0,
+        "spring": 20593.0,
+    },
+    "combined_cycle": {
+        "summer": 24080.0,
+        "fall": 20388.0,
+        "winter": 20598.0,
+        "spring": 18565.0,
+    },
+    "dual_fuel_oil_gas": {
+        "summer": 6496.0,
+        "fall": 5635.0,
+        "winter": 5299.0,
+        "spring": 5369.0,
+    },
+    "gas": {
+        "summer": 25010.0,
+        "fall": 20602.0,
+        "winter": 19300.0,
+        "spring": 18114.0,
+    },
+    "nuclear": {
+        "summer": 10814.0,
+        "fall": 9724.0,
+        "winter": 9937.0,
+        "spring": 9625.0,
+    },
+    "oil": {"summer": 507.0, "fall": 465.0, "winter": 305.0, "spring": 326.0},
+    "pumped_storage": {
+        "summer": 2528.0,
+        "fall": 1972.0,
+        "winter": 2212.0,
+        "spring": 1798.0,
+    },
+    "reservoir_hydro": {
+        "summer": 455.0,
+        "fall": 377.0,
+        "winter": 411.0,
+        "spring": 384.0,
+    },
+    "run_of_river_hydro": {
+        "summer": 509.0,
+        "fall": 325.0,
+        "winter": 446.0,
+        "spring": 476.0,
+    },
+    "solar": {"summer": 5287.0, "fall": 249.0, "winter": 178.0, "spring": 487.0},
+    "storage": {"summer": 289.0, "fall": 32.0, "winter": 33.0, "spring": 100.0},
+    "wind": {"summer": 2079.0, "fall": 3282.0, "winter": 6682.0, "spring": 4086.0},
+}
+
+
+# MISO resource-class ISAC totals in MW, indexed as
+# RESOURCE_CLASS_ISAC_MW[resource_class][season].  Values reflect the
+# system-level Installed Seasonal Accredited Capacity (ISAC) attributed
+# to each resource class in MISO's seasonal capacity construct.  Source:
+# MISO PY 27-28 RA Hours (Fall) reference workbook.
+RESOURCE_CLASS_ISAC_MW: dict[str, dict[str, float]] = {
+    "biomass": {"summer": 445.0, "fall": 433.0, "winter": 428.0, "spring": 421.0},
+    "coal": {
+        "summer": 31881.0,
+        "fall": 30674.0,
+        "winter": 31038.0,
+        "spring": 25175.0,
+    },
+    "combined_cycle": {
+        "summer": 24524.0,
+        "fall": 23308.0,
+        "winter": 25477.0,
+        "spring": 22682.0,
+    },
+    "dual_fuel_oil_gas": {
+        "summer": 7021.0,
+        "fall": 6866.0,
+        "winter": 6710.0,
+        "spring": 6429.0,
+    },
+    "gas": {
+        "summer": 26773.0,
+        "fall": 25302.0,
+        "winter": 24490.0,
+        "spring": 24389.0,
+    },
+    "nuclear": {
+        "summer": 10999.0,
+        "fall": 10656.0,
+        "winter": 10901.0,
+        "spring": 10661.0,
+    },
+    "oil": {"summer": 576.0, "fall": 559.0, "winter": 538.0, "spring": 523.0},
+    "pumped_storage": {
+        "summer": 2386.0,
+        "fall": 1988.0,
+        "winter": 2223.0,
+        "spring": 2282.0,
+    },
+    "reservoir_hydro": {
+        "summer": 474.0,
+        "fall": 395.0,
+        "winter": 368.0,
+        "spring": 411.0,
+    },
+    "run_of_river_hydro": {
+        "summer": 841.0,
+        "fall": 757.0,
+        "winter": 808.0,
+        "spring": 830.0,
+    },
+    "solar": {"summer": 6028.0, "fall": 1864.0, "winter": 509.0, "spring": 1701.0},
+    "storage": {"summer": 447.0, "fall": 26.0, "winter": 30.0, "spring": 87.0},
+    "wind": {"summer": 4687.0, "fall": 8704.0, "winter": 10859.0, "spring": 8021.0},
+}
+
+
+def get_class_ucap(resource_class: str, season: str) -> float:
+    """Get the MISO resource-class UCAP for a given class and season.
+
+    Looks up the system-level Unforced Capacity (UCAP) for the requested
+    resource class and season from :data:`RESOURCE_CLASS_UCAP_MW`.
+
+    Args:
+        resource_class (str): Resource class name. Must be one of the
+            keys of :data:`RESOURCE_CLASS_UCAP_MW` (e.g. ``"biomass"``,
+            ``"coal"``, ``"combined_cycle"``, ``"dual_fuel_oil_gas"``,
+            ``"gas"``, ``"nuclear"``, ``"oil"``, ``"pumped_storage"``,
+            ``"reservoir_hydro"``, ``"run_of_river_hydro"``, ``"solar"``,
+            ``"storage"``, ``"wind"``).
+        season (str): MISO season name. Must be one of ``"summer"``,
+            ``"fall"``, ``"winter"``, ``"spring"``.
+
+    Returns:
+        float: UCAP in MW for the requested ``(resource_class, season)``.
+
+    Raises:
+        KeyError: If ``resource_class`` or ``season`` is not present in
+            :data:`RESOURCE_CLASS_UCAP_MW`.
+    """
+    try:
+        return RESOURCE_CLASS_UCAP_MW[resource_class][season]
+    except KeyError as err:
+        raise KeyError(
+            f"No UCAP available for resource_class={resource_class!r}, "
+            f"season={season!r}. "
+            f"Valid resource classes: {sorted(RESOURCE_CLASS_UCAP_MW)}; "
+            f"valid seasons: ['summer', 'fall', 'winter', 'spring']."
+        ) from err
+
+
+def get_class_isac(resource_class: str, season: str) -> float:
+    """Get the MISO resource-class ISAC for a given class and season.
+
+    Looks up the system-level Installed Seasonal Accredited Capacity
+    (ISAC) for the requested resource class and season from
+    :data:`RESOURCE_CLASS_ISAC_MW`.
+
+    Args:
+        resource_class (str): Resource class name. Must be one of the
+            keys of :data:`RESOURCE_CLASS_ISAC_MW` (e.g. ``"biomass"``,
+            ``"coal"``, ``"combined_cycle"``, ``"dual_fuel_oil_gas"``,
+            ``"gas"``, ``"nuclear"``, ``"oil"``, ``"pumped_storage"``,
+            ``"reservoir_hydro"``, ``"run_of_river_hydro"``, ``"solar"``,
+            ``"storage"``, ``"wind"``).
+        season (str): MISO season name. Must be one of ``"summer"``,
+            ``"fall"``, ``"winter"``, ``"spring"``.
+
+    Returns:
+        float: ISAC in MW for the requested ``(resource_class, season)``.
+
+    Raises:
+        KeyError: If ``resource_class`` or ``season`` is not present in
+            :data:`RESOURCE_CLASS_ISAC_MW`.
+    """
+    try:
+        return RESOURCE_CLASS_ISAC_MW[resource_class][season]
+    except KeyError as err:
+        raise KeyError(
+            f"No ISAC available for resource_class={resource_class!r}, "
+            f"season={season!r}. "
+            f"Valid resource classes: {sorted(RESOURCE_CLASS_ISAC_MW)}; "
+            f"valid seasons: ['summer', 'fall', 'winter', 'spring']."
+        ) from err
+
+
+def get_class_ucap_over_isac(resource_class: str, season: str) -> float:
+    """Get the UCAP/ISAC ratio for a given resource class and season.
+
+    Computes ``get_class_ucap(resource_class, season) /
+    get_class_isac(resource_class, season)``.
+
+    Args:
+        resource_class (str): Resource class name. Must be one of the
+            keys of :data:`RESOURCE_CLASS_UCAP_MW` /
+            :data:`RESOURCE_CLASS_ISAC_MW`.
+        season (str): MISO season name. Must be one of ``"summer"``,
+            ``"fall"``, ``"winter"``, ``"spring"``.
+
+    Returns:
+        float: Dimensionless UCAP/ISAC ratio for the requested
+        ``(resource_class, season)``.
+
+    Raises:
+        KeyError: If ``resource_class`` or ``season`` is not present in
+            either LUT.
+        ZeroDivisionError: If the looked-up ISAC value is zero.
+    """
+    ucap = get_class_ucap(resource_class, season)
+    isac = get_class_isac(resource_class, season)
+    if isac == 0:
+        raise ZeroDivisionError(
+            f"ISAC is zero for resource_class={resource_class!r}, "
+            f"season={season!r}; UCAP/ISAC ratio is undefined."
+        )
+    return ucap / isac
+
+
 def _coerce_to_bool_mask(series: pd.Series, column_name: str) -> pd.Series:
     """Coerce an RA-hour flag column to a clean boolean mask.
 
