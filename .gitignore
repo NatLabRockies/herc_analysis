@@ -63,4 +63,8 @@ Thumbs.db
 !stored_hercules_output/**/*.yaml
 !stored_hercules_output/**/*.csv
 
+# Allow miso_capacity_inputs contents to be committed (except xlsx)
+!herc_analysis/miso_capacity_inputs/**
+herc_analysis/miso_capacity_inputs/**/*.xlsx
+
 uv.lock
