@@ -13,6 +13,70 @@ RA_HOURS_FEATHER_PATH = (
 _VALID_NORTH_SOUTH = {"north", "south"}
 
 
+# MISO Planning Resource Auction (PRA) clearing prices in $/MW-day,
+# indexed as PRA_PRICES_USD_PER_MW_DAY[year][zone][season].  Zones
+# 1-7 are the North/Central region; zones 8-10 are the South region.
+# Seasons follow MISO's seasonal construct (summer, fall, winter,
+# spring).  Source: MISO PRA results announcements.
+PRA_PRICES_USD_PER_MW_DAY: dict[int, dict[int, dict[str, float]]] = {
+    2025: {
+        1: {"summer": 666.50, "fall": 91.60, "winter": 33.20, "spring": 69.88},
+        2: {"summer": 666.50, "fall": 91.60, "winter": 33.20, "spring": 69.88},
+        3: {"summer": 666.50, "fall": 91.60, "winter": 33.20, "spring": 69.88},
+        4: {"summer": 666.50, "fall": 91.60, "winter": 33.20, "spring": 69.88},
+        5: {"summer": 666.50, "fall": 91.60, "winter": 33.20, "spring": 69.88},
+        6: {"summer": 666.50, "fall": 91.60, "winter": 33.20, "spring": 69.88},
+        7: {"summer": 666.50, "fall": 91.60, "winter": 33.20, "spring": 69.88},
+        8: {"summer": 666.50, "fall": 74.09, "winter": 33.20, "spring": 69.88},
+        9: {"summer": 666.50, "fall": 74.09, "winter": 33.20, "spring": 69.88},
+        10: {"summer": 666.50, "fall": 74.09, "winter": 33.20, "spring": 69.88},
+    },
+    2026: {
+        1: {"summer": 424.30, "fall": 33.92, "winter": 35.97, "spring": 7.61},
+        2: {"summer": 424.30, "fall": 33.92, "winter": 35.97, "spring": 7.61},
+        3: {"summer": 424.30, "fall": 33.92, "winter": 35.97, "spring": 7.61},
+        4: {"summer": 424.30, "fall": 33.92, "winter": 35.97, "spring": 7.61},
+        5: {"summer": 424.30, "fall": 33.92, "winter": 35.97, "spring": 7.61},
+        6: {"summer": 424.30, "fall": 33.92, "winter": 35.97, "spring": 7.61},
+        7: {"summer": 424.30, "fall": 33.92, "winter": 35.97, "spring": 7.61},
+        8: {"summer": 384.10, "fall": 33.92, "winter": 35.97, "spring": 7.61},
+        9: {"summer": 412.10, "fall": 33.92, "winter": 35.97, "spring": 7.61},
+        10: {"summer": 384.10, "fall": 33.92, "winter": 35.97, "spring": 7.61},
+    },
+}
+
+
+def get_acp(season: str, zone: int, year: int) -> float:
+    """Get the MISO Auction Clearing Price (ACP) for a season/zone/year.
+
+    Looks up the published MISO Planning Resource Auction (PRA)
+    clearing price from :data:`PRA_PRICES_USD_PER_MW_DAY`.
+
+    Args:
+        season (str): MISO season name. Must be one of ``"summer"``,
+            ``"fall"``, ``"winter"``, ``"spring"``.
+        zone (int): MISO Local Resource Zone (1-10).  Zones 1-7 are the
+            North/Central region; zones 8-10 are the South region.
+        year (int): Planning year of the PRA result to look up.
+
+    Returns:
+        float: ACP in $/MW-day for the requested ``(year, zone, season)``.
+
+    Raises:
+        KeyError: If ``year``, ``zone``, or ``season`` is not present in
+            :data:`PRA_PRICES_USD_PER_MW_DAY`.
+    """
+    try:
+        return PRA_PRICES_USD_PER_MW_DAY[year][zone][season]
+    except KeyError as err:
+        raise KeyError(
+            f"No ACP available for year={year}, zone={zone}, season={season!r}. "
+            f"Valid years: {sorted(PRA_PRICES_USD_PER_MW_DAY)}; "
+            f"valid zones: 1-10; "
+            f"valid seasons: ['summer', 'fall', 'winter', 'spring']."
+        ) from err
+
+
 def _coerce_to_bool_mask(series: pd.Series, column_name: str) -> pd.Series:
     """Coerce an RA-hour flag column to a clean boolean mask.
 
