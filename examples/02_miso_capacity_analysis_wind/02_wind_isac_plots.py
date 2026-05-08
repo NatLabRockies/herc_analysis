@@ -48,6 +48,19 @@ tier1 = [mc.tier_1_availability_mw[(s, COMPONENT)] for s in seasons]
 tier2 = [mc.tier_2_availability_mw[(s, COMPONENT)] for s in seasons]
 isac = [mc.isac_mw[(s, COMPONENT)] for s in seasons]
 
+# AAOC: annual value (not seasonal), use the first (year, component) entry
+aaoc_value = list(mc.aaoc_per_year_mw.values())[0]
+
+# Count Tier 1 (non-RA) and Tier 2 (RA) hours per season
+ra_col = f"ra_{mc.subregion}"
+df_h = mc.df_h_limit_mw
+tier1_hours = {}
+tier2_hours = {}
+for s in seasons:
+    df_s = df_h[df_h["season"] == s]
+    tier2_hours[s] = int(df_s[ra_col].sum())
+    tier1_hours[s] = len(df_s) - tier2_hours[s]
+
 # ── Figure 1: seasonal availability bar chart ────────────────────────────────
 x = np.arange(len(seasons))
 width = 0.25
@@ -56,6 +69,9 @@ fig1, ax1 = plt.subplots(figsize=(9, 5))
 ax1.bar(x - width, tier1, width, label="Tier 1 (non-RA hours)", color="steelblue")
 ax1.bar(x, tier2, width, label="Tier 2 (RA hours)", color="darkorange")
 ax1.bar(x + width, isac, width, label="ISAC (0.2·T1 + 0.8·T2)", color="seagreen")
+ax1.axhline(
+    aaoc_value, color="purple", ls="--", lw=1.5, label=f"AAOC ({aaoc_value:.1f} MW)"
+)
 ax1.set_xticks(x)
 ax1.set_xticklabels([s.capitalize() for s in seasons])
 ax1.set_ylabel("Availability (MW)")
@@ -87,7 +103,7 @@ for ax, season in zip(axes2, seasons, strict=False):
         s=2,
         alpha=0.3,
         color="steelblue",
-        label="Non-RA hours",
+        label=f"Non-RA hours (Tier 1: {tier1_hours[season]}h)",
     )
     ax.scatter(
         df_s.index[ra_mask],
@@ -95,7 +111,7 @@ for ax, season in zip(axes2, seasons, strict=False):
         s=6,
         alpha=0.7,
         color="tomato",
-        label="RA hours",
+        label=f"RA hours (Tier 2: {tier2_hours[season]}h)",
     )
 
     key = (season, COMPONENT)
@@ -119,6 +135,13 @@ for ax, season in zip(axes2, seasons, strict=False):
         ls="-",
         lw=2,
         label=f"ISAC  ({mc.isac_mw[key]:.1f} MW)",
+    )
+    ax.axhline(
+        aaoc_value,
+        color="purple",
+        ls="--",
+        lw=1.5,
+        label=f"AAOC  ({aaoc_value:.1f} MW)",
     )
 
     ax.set_title(season.capitalize())
