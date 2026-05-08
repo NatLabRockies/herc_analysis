@@ -403,6 +403,23 @@ class MisoCapacity:
         # Compute the revenue per season
         self.revenue_per_season = self._compute_revenue_per_season()
 
+        # Compute the annual revenue
+        self.annual_revenue = self._compute_annual_revenue()
+
+    def _get_available_classes(self) -> list[str]:
+        """Get available resource classes from the bundled UCAP CSV.
+
+        Reads :data:`RESOURCE_CLASS_UCAP_CSV_PATH` and returns sorted
+        unique values from the ``resource_class`` column.
+
+        Returns:
+            list[str]: Sorted list of available resource class names.
+        """
+        ucap_df = pd.read_csv(RESOURCE_CLASS_UCAP_CSV_PATH)
+        return sorted(
+            ucap_df["resource_class"].dropna().astype(str).str.strip().unique().tolist()
+        )
+
     def _get_subregion(self) -> str:
         """Get the MISO subregion name for :attr:`zone`.
 
@@ -473,103 +490,6 @@ class MisoCapacity:
         df_merge["year"] = df_merge["time_utc"].dt.year
 
         return df_merge
-
-    def _get_available_pra_years(self) -> list[int]:
-        """Get available PRA price years from the bundled PRA CSV.
-
-        Reads :data:`PRA_PRICES_CSV_PATH` and returns sorted unique values
-        from the ``year`` column.
-
-        Returns:
-            list[int]: Sorted list of available PRA years.
-        """
-        pra_prices_df = pd.read_csv(PRA_PRICES_CSV_PATH)
-        return sorted(pra_prices_df["year"].dropna().astype(int).unique().tolist())
-
-    def _get_available_classes(self) -> list[str]:
-        """Get available resource classes from the bundled UCAP CSV.
-
-        Reads :data:`RESOURCE_CLASS_UCAP_CSV_PATH` and returns sorted
-        unique values from the ``resource_class`` column.
-
-        Returns:
-            list[str]: Sorted list of available resource class names.
-        """
-        ucap_df = pd.read_csv(RESOURCE_CLASS_UCAP_CSV_PATH)
-        return sorted(
-            ucap_df["resource_class"].dropna().astype(str).str.strip().unique().tolist()
-        )
-
-    def _get_pra_prices(self) -> dict[str, float]:
-        """Get the PRA clearing prices per season for :attr:`zone`.
-
-        Reads :data:`PRA_PRICES_CSV_PATH`, filters to :attr:`zone` and
-        :attr:`pra_years`, and returns a dict keyed by season with values
-        in $/MW-day.  When :attr:`pra_years` contains more than one
-        year, the prices are averaged across years (per season).
-
-        Returns:
-            dict[str, float]: Mapping from season name (``"summer"``,
-            ``"fall"``, ``"winter"``, ``"spring"``) to PRA clearing price
-            in $/MW-day.
-
-        Raises:
-            ValueError: If :attr:`zone` is missing from the source CSV
-                or if any year in :attr:`pra_years` has no row for
-                :attr:`zone`.
-        """
-        pra_prices_df = pd.read_csv(PRA_PRICES_CSV_PATH)
-
-        df_zone = pra_prices_df[pra_prices_df["zone"] == self.zone]
-        if df_zone.empty:
-            raise ValueError(
-                f"Zone {self.zone} not found in PRA prices CSV {PRA_PRICES_CSV_PATH}."
-            )
-
-        df_filtered = df_zone[df_zone["year"].isin(self.pra_years)]
-        missing_years = sorted(set(self.pra_years) - set(df_filtered["year"].tolist()))
-        if missing_years:
-            raise ValueError(
-                f"PRA years {missing_years} not found for zone {self.zone} in "
-                f"PRA prices CSV {PRA_PRICES_CSV_PATH}."
-            )
-
-        season_means = df_filtered[list(_SEASONS)].mean(axis=0)
-        return {season: float(season_means[season]) for season in _SEASONS}
-
-    def _get_days_per_season(self, year: int) -> dict[str, int]:
-        """Get the seasonal day counts for a calendar year.
-
-        Reads the appropriate days-per-season CSV (leap or non-leap) and
-        returns a dictionary keyed by season with integer day counts.
-
-        Args:
-            year (int): Calendar year used to decide whether the leap-year
-                day-count table applies.
-
-        Returns:
-            dict[str, int]: Mapping from season name (``"summer"``,
-            ``"fall"``, ``"winter"``, ``"spring"``) to number of days in
-            that season for ``year``.
-
-        Raises:
-            KeyError: If any expected season key is missing from the source
-                table.
-        """
-        path = (
-            DAYS_PER_SEASON_LEAP_YEAR_CSV_PATH
-            if calendar.isleap(year)
-            else DAYS_PER_SEASON_CSV_PATH
-        )
-        days_by_season = pd.read_csv(path).set_index("season")["days"]
-        try:
-            return {season: int(days_by_season.loc[season]) for season in _SEASONS}
-        except KeyError as err:
-            raise KeyError(
-                f"Missing season day count in source table. "
-                f"Expected seasons: {list(_SEASONS)}; "
-                f"available seasons: {sorted(days_by_season.index)}."
-            ) from err
 
     def _limit_hourly_availability_contributions(self) -> pd.DataFrame:
         """Cap the row-wise sum of component contributions at the interconnect limit.
@@ -957,3 +877,295 @@ class MisoCapacity:
             conversion = self.class_ucap_isac_conversion.get(key, float("nan"))
             sac[key] = isac_value * conversion
         return sac
+
+    def _get_available_pra_years(self) -> list[int]:
+        """Get available PRA price years from the bundled PRA CSV.
+
+        Reads :data:`PRA_PRICES_CSV_PATH` and returns sorted unique values
+        from the ``year`` column.
+
+        Returns:
+            list[int]: Sorted list of available PRA years.
+        """
+        pra_prices_df = pd.read_csv(PRA_PRICES_CSV_PATH)
+        return sorted(pra_prices_df["year"].dropna().astype(int).unique().tolist())
+
+    def _get_pra_prices(self) -> dict[str, float]:
+        """Get the PRA clearing prices per season for :attr:`zone`.
+
+        Reads :data:`PRA_PRICES_CSV_PATH`, filters to :attr:`zone` and
+        :attr:`pra_years`, and returns a dict keyed by season with values
+        in $/MW-day.  When :attr:`pra_years` contains more than one
+        year, the prices are averaged across years (per season).
+
+        Returns:
+            dict[str, float]: Mapping from season name (``"summer"``,
+            ``"fall"``, ``"winter"``, ``"spring"``) to PRA clearing price
+            in $/MW-day.
+
+        Raises:
+            ValueError: If :attr:`zone` is missing from the source CSV
+                or if any year in :attr:`pra_years` has no row for
+                :attr:`zone`.
+        """
+        pra_prices_df = pd.read_csv(PRA_PRICES_CSV_PATH)
+
+        df_zone = pra_prices_df[pra_prices_df["zone"] == self.zone]
+        if df_zone.empty:
+            raise ValueError(
+                f"Zone {self.zone} not found in PRA prices CSV {PRA_PRICES_CSV_PATH}."
+            )
+
+        df_filtered = df_zone[df_zone["year"].isin(self.pra_years)]
+        missing_years = sorted(set(self.pra_years) - set(df_filtered["year"].tolist()))
+        if missing_years:
+            raise ValueError(
+                f"PRA years {missing_years} not found for zone {self.zone} in "
+                f"PRA prices CSV {PRA_PRICES_CSV_PATH}."
+            )
+
+        season_means = df_filtered[list(_SEASONS)].mean(axis=0)
+        return {season: float(season_means[season]) for season in _SEASONS}
+
+    def _get_days_per_season(self) -> dict[str, float]:
+        """Get average seasonal day counts across :attr:`pra_years`.
+
+        Reads the appropriate days-per-season CSV for each year in
+        :attr:`pra_years` (choosing the leap-year table when the year is a
+        leap year) and returns the average day count per season.  When
+        :attr:`pra_years` contains a single year the result is the exact
+        integer count for that year cast to float; with multiple years the
+        result is a weighted average and may be fractional.
+
+        Returns:
+            dict[str, float]: Mapping from season name (``"summer"``,
+            ``"fall"``, ``"winter"``, ``"spring"``) to average number of
+            days in that season across :attr:`pra_years`.
+
+        Raises:
+            KeyError: If any expected season key is missing from the source
+                table.
+        """
+        all_days: list[dict[str, int]] = []
+        for year in self.pra_years:
+            path = (
+                DAYS_PER_SEASON_LEAP_YEAR_CSV_PATH
+                if calendar.isleap(year)
+                else DAYS_PER_SEASON_CSV_PATH
+            )
+            days_by_season = pd.read_csv(path).set_index("season")["days"]
+            try:
+                all_days.append(
+                    {season: int(days_by_season.loc[season]) for season in _SEASONS}
+                )
+            except KeyError as err:
+                raise KeyError(
+                    f"Missing season day count in source table. "
+                    f"Expected seasons: {list(_SEASONS)}; "
+                    f"available seasons: {sorted(days_by_season.index)}."
+                ) from err
+        return {
+            season: sum(d[season] for d in all_days) / len(all_days)
+            for season in _SEASONS
+        }
+
+    def _compute_revenue_per_season(self) -> dict[tuple[str, str], float]:
+        """Compute per-(season, component) capacity revenue.
+
+        Multiplies the component ZRC (Zonal Resource Credits, MW) by the
+        season's PRA clearing price ($/MW-day) and the number of days in
+        that season.  Only ``(season, component)`` pairs present in
+        :attr:`zrc` contribute; seasons absent from :attr:`df_h_limit` (e.g.
+        because they were filtered by :meth:`_drop_low_hour_seasons`) will
+        not appear in the returned dict.
+
+        Assumes :attr:`zrc`, :attr:`pra_prices`, and :attr:`days_per_season`
+        have already been populated.
+
+        Returns:
+            dict[tuple[str, str], float]: Mapping from
+            ``(season, component)`` to revenue in dollars.
+        """
+        return {
+            (season, component): zrc_value
+            * self.pra_prices[season]
+            * self.days_per_season[season]
+            for (season, component), zrc_value in self.zrc.items()
+        }
+
+    def _compute_annual_revenue(self) -> dict[str, float]:
+        """Compute total annual revenue per component, summed across seasons.
+
+        Sums :attr:`revenue_per_season` over all four seasons for each
+        component.  Seasons absent from :attr:`revenue_per_season` contribute
+        zero to the sum, so a component with partial-year data will show a
+        proportionally lower annual total.
+
+        Assumes :attr:`revenue_per_season` has already been populated.
+
+        Returns:
+            dict[str, float]: Mapping from component name to total annual
+            revenue in dollars.
+        """
+        return {
+            component: sum(
+                self.revenue_per_season.get((season, component), 0.0)
+                for season in _SEASONS
+            )
+            for component in self.component_list
+        }
+
+    def get_component_table(self, component: str) -> pd.DataFrame:
+        """Build a per-season results table for a single component.
+
+        The returned DataFrame has one column per MISO season (summer, fall,
+        winter, spring) and one row per metric, in the same order as the
+        :meth:`__init__` computation flow.  Seasons absent from
+        :attr:`df_h_limit` (e.g. filtered by
+        :meth:`_drop_low_hour_seasons`) show ``NaN``.
+
+        Args:
+            component (str): A component name from :attr:`component_list`.
+
+        Returns:
+            pd.DataFrame: Shape ``(11, 4)`` with seasons as columns and
+            metrics as the index.
+
+        Raises:
+            ValueError: If ``component`` is not in :attr:`component_list`.
+        """
+        if component not in self.component_list:
+            raise ValueError(
+                f"Component '{component}' not in component_list: {self.component_list}."
+            )
+
+        hours_per_season = (
+            self.df_h_limit.groupby("season").size().to_dict()
+            if not self.df_h_limit.empty
+            else {}
+        )
+
+        rows: dict[str, dict[str, float]] = {
+            "# Hours": {},
+            "Tier 1 (MW)": {},
+            "Tier 2 (MW)": {},
+            "ISAC (MW)": {},
+            "Class UCAP (MW)": {},
+            "Class ISAC (MW)": {},
+            "SAC (MW)": {},
+            "ZRC (MW)": {},
+            "PRA Price ($/MW-day)": {},
+            "Days": {},
+            "Revenue ($)": {},
+        }
+        for season in _SEASONS:
+            key = (season, component)
+            rows["# Hours"][season] = float(hours_per_season.get(season, float("nan")))
+            rows["Tier 1 (MW)"][season] = self.tier_1_availability.get(
+                key, float("nan")
+            )
+            rows["Tier 2 (MW)"][season] = self.tier_2_availability.get(
+                key, float("nan")
+            )
+            rows["ISAC (MW)"][season] = self.isac.get(key, float("nan"))
+            rows["Class UCAP (MW)"][season] = self.class_ucap.get(key, float("nan"))
+            rows["Class ISAC (MW)"][season] = self.class_isac.get(key, float("nan"))
+            rows["SAC (MW)"][season] = self.sac.get(key, float("nan"))
+            rows["ZRC (MW)"][season] = self.zrc.get(key, float("nan"))
+            rows["PRA Price ($/MW-day)"][season] = self.pra_prices.get(
+                season, float("nan")
+            )
+            rows["Days"][season] = self.days_per_season.get(season, float("nan"))
+            rows["Revenue ($)"][season] = self.revenue_per_season.get(key, float("nan"))
+
+        return pd.DataFrame(rows, index=list(_SEASONS)).T
+
+    def print_component_table(self, component: str) -> None:
+        """Print a formatted per-season results table for a single component.
+
+        Calls :meth:`get_component_table` and prints the result to stdout
+        with a component header and comma-separated numeric formatting.
+
+        Args:
+            component (str): A component name from :attr:`component_list`.
+        """
+        table = self.get_component_table(component)
+        print(f"\n=== {component} ===")
+        print(table.to_string(float_format="{:,.2f}".format))
+
+    def get_totals_table(self) -> pd.DataFrame:
+        """Build a totals table summing capacity and revenue across all components.
+
+        Produces the same row/column structure as :meth:`get_component_table`
+        but aggregates across :attr:`component_list`.  Capacity and revenue
+        rows (Tier 1–ZRC and Revenue) are summed; the ``# Hours``,
+        ``PRA Price``, and ``Days`` rows are taken from the first component
+        (they are identical for every component in a given season).
+
+        Returns:
+            pd.DataFrame: Shape ``(11, 4)`` with seasons as columns.
+        """
+        summed_rows = (
+            "Tier 1 (MW)",
+            "Tier 2 (MW)",
+            "ISAC (MW)",
+            "Class UCAP (MW)",
+            "Class ISAC (MW)",
+            "SAC (MW)",
+            "ZRC (MW)",
+            "Revenue ($)",
+        )
+        total: pd.DataFrame | None = None
+        for component in self.component_list:
+            comp_df = self.get_component_table(component)
+            if total is None:
+                total = comp_df.copy()
+            else:
+                total.loc[list(summed_rows)] += comp_df.loc[list(summed_rows)]
+
+        return total if total is not None else pd.DataFrame()
+
+    def print_totals_table(self) -> None:
+        """Print a formatted totals table aggregated across all components.
+
+        Calls :meth:`get_totals_table` and prints the result to stdout.
+        """
+        table = self.get_totals_table()
+        print("\n=== TOTALS (all components) ===")
+        print(table.to_string(float_format="{:,.2f}".format))
+
+    def print_all_component_tables(self) -> None:
+        """Print per-component tables followed by the fleet totals table.
+
+        Calls :meth:`print_component_table` for each entry in
+        :attr:`component_list`, then calls :meth:`print_totals_table`.
+        """
+        for component in self.component_list:
+            self.print_component_table(component)
+        self.print_totals_table()
+
+    def get_total_revenue(self) -> float:
+        """Return the total annual revenue summed across all components.
+
+        Returns:
+            float: Total annual capacity revenue in dollars.
+        """
+        return sum(self.annual_revenue.values())
+
+    def get_component_revenue(self, component: str) -> float:
+        """Return the total annual revenue for a single component.
+
+        Args:
+            component (str): A component name from :attr:`component_list`.
+
+        Returns:
+            float: Annual capacity revenue in dollars for ``component``.
+
+        Raises:
+            ValueError: If ``component`` is not in :attr:`component_list`.
+        """
+        if component not in self.component_list:
+            raise ValueError(
+                f"Component '{component}' not in component_list: {self.component_list}."
+            )
+        return self.annual_revenue[component]
