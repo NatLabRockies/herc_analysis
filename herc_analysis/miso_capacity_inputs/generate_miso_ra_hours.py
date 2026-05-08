@@ -7,6 +7,16 @@ The output csv file and a log file are created and these are tracked in the git 
 
 To generate a new csv file using update data,
  add spreadsheets of RA data (can see log for example files) and run this script.
+
+Output column conventions:
+    - ``time_utc``: hour-beginning UTC timestamp.
+    - ``planning_year``: int16 code formed by concatenating the two
+      two-digit calendar years of the MISO planning year, e.g.
+      ``CY22Sept23Aug`` -> ``2223`` (Sept 2022 -> Aug 2023).
+    - ``season``: short string (summer/fall/winter/spring).
+    - ``ra_*``, ``aaoc_*``: pandas nullable ``Int8`` (0 / 1).  AAOC
+      coverage may be partial; missing values are written as empty
+      cells, which downstream ``_coerce_to_bool_mask`` treats as False.
 """
 
 from datetime import datetime
@@ -37,6 +47,25 @@ def _flatten_columns(cols):
     ]
 
 
+def _parse_planning_year(lookback_series: pd.Series) -> pd.Series:
+    """Parse the ``CY: LookBackYear`` field into a compact int planning-year code.
+
+    The two-digit start year (after the leading ``CY``) determines the
+    planning year; the end year is always start+1 regardless of the
+    end-month token.  Examples:
+
+    - ``CY22Sept23Aug`` (full Sept 2022 -> Aug 2023) -> ``2223``.
+    - ``CY25Sept25Nov`` (partial Sept 2025 -> Nov 2025, fall-only feed)
+      -> ``2526`` (still belongs to PY 25/26).
+    """
+    start = lookback_series.astype(str).str.extract(r"CY(?P<a>\d{2})")["a"]
+    if start.isna().any():
+        bad = lookback_series[start.isna()].unique()
+        raise ValueError(f"Unparseable CY: LookBackYear values: {bad}")
+    start_int = start.astype(int)
+    return (start_int * 100 + (start_int + 1) % 100).astype("Int16")
+
+
 def _load_one(path):
     """Load one MISO RA-hour xlsx into a tidy per-file DataFrame."""
     raw = pd.read_excel(path, sheet_name="DATA", header=[0, 1])
@@ -51,15 +80,17 @@ def _load_one(path):
     out = pd.DataFrame(
         {
             "time_utc": time_utc,
+            "planning_year": _parse_planning_year(raw["CY: LookBackYear"]),
             "season": raw["season"].astype("string"),
-            # "lookback_year": raw["CY: LookBackYear"].astype("string"),
-            "ra_central_north": raw[SEASONAL_CENTRAL_NORTH].astype(int),
-            "ra_south": raw[SEASONAL_SOUTH].astype(int),
+            "ra_central_north": raw[SEASONAL_CENTRAL_NORTH].astype("Int8"),
+            "ra_south": raw[SEASONAL_SOUTH].astype("Int8"),
         }
     )
     if AAOC_CENTRAL_NORTH in raw.columns:
-        out["aaoc_central_north"] = raw[AAOC_CENTRAL_NORTH].astype(int)
-        out["aaoc_south"] = raw[AAOC_SOUTH].astype(int)
+        # AAOC coverage is partial; nullable Int8 preserves NaN as empty
+        # cells in the CSV (smaller than the legacy 1.0/0.0 floats).
+        out["aaoc_central_north"] = raw[AAOC_CENTRAL_NORTH].astype("Int8")
+        out["aaoc_south"] = raw[AAOC_SOUTH].astype("Int8")
 
     diffs = out["time_utc"].sort_values().diff().dropna().unique()
     assert len(diffs) == 1 and diffs[0] == ONE_HOUR, (

@@ -40,15 +40,15 @@ def _make_capacity(
     df,
     interconnect_limit,
     priority_order=None,
-    remove_low_hour_seasons=False,
+    remove_low_hour_planning_years=False,
     class_list=None,
     pra_years=None,
 ):
     """Construct a ``MisoCapacity`` with sensible defaults for testing.
 
-    ``remove_low_hour_seasons`` defaults to ``False`` so short test windows
-    (a few hours) are not silently filtered before metrics are computed.
-    ``class_list`` defaults to ``["wind"]`` for every component.
+    ``remove_low_hour_planning_years`` defaults to ``False`` so short test
+    windows (a few hours) are not silently filtered before metrics are
+    computed.  ``class_list`` defaults to ``["wind"]`` for every component.
     Zone 1 maps to the ``central_north`` subregion in the bundled CSV.
     """
     component_list = [c for c in df.columns if c != "time_utc"]
@@ -61,7 +61,7 @@ def _make_capacity(
         zone=1,
         interconnect_limit=interconnect_limit,
         priority_order=priority_order,
-        remove_low_hour_seasons=remove_low_hour_seasons,
+        remove_low_hour_planning_years=remove_low_hour_planning_years,
         pra_years=pra_years,
     )
 
@@ -231,7 +231,7 @@ def test_limit_does_not_mutate_input_df():
 
 
 def test_limit_preserves_non_component_columns_in_df_h_mw():
-    """Season, RA-flag, and year columns survive the capping step unchanged."""
+    """Season, RA-flag, and planning_year columns survive the capping step unchanged."""
     df = _make_hourly_df(
         "2024-01-01 00:00",
         2,
@@ -242,31 +242,31 @@ def test_limit_preserves_non_component_columns_in_df_h_mw():
         mc.df_h_limit_mw["season"], mc.df_h_mw["season"], check_names=False
     )
     assert "ra_central_north" in mc.df_h_limit_mw.columns
-    assert "year" in mc.df_h_limit_mw.columns
+    assert "planning_year" in mc.df_h_limit_mw.columns
 
 
 # ---------------------------------------------------------------------------
-# 2. Hour counting and low-season dropping
+# 2. Hour counting and low-planning-year dropping
 # ---------------------------------------------------------------------------
 
 
-def test_hours_per_year_season_matches_df_h_limit():
-    """hours_per_year_season reflects the actual (year, season) row counts in df_h_limit.
+def test_hours_per_planning_year_season_matches_df_h_limit():
+    """hours_per_planning_year_season reflects actual (planning_year, season) row counts.
 
-    This attribute is computed *before* season-dropping so it serves as an
+    This attribute is computed *before* low-PY dropping so it serves as an
     audit trail of original simulation coverage.
     """
     mc = _availability_capacity()
     df = mc.df_h_limit_mw
     expected = {
-        (int(y), str(s)): int(c)
-        for (y, s), c in df.groupby(["year", "season"]).size().items()
+        (int(py), str(s)): int(c)
+        for (py, s), c in df.groupby(["planning_year", "season"]).size().items()
     }
-    assert mc.hours_per_year_season == expected
+    assert mc.hours_per_planning_year_season == expected
 
 
-def test_remove_low_hour_seasons_default_is_true():
-    """The remove_low_hour_seasons flag defaults to True for production use."""
+def test_remove_low_hour_planning_years_default_is_true():
+    """The remove_low_hour_planning_years flag defaults to True for production use."""
     df = _make_hourly_df("2022-09-01 05:00", 2, {"a": [1.0, 1.0], "b": [2.0, 2.0]})
     component_list = [c for c in df.columns if c != "time_utc"]
     mc = MisoCapacity(
@@ -276,52 +276,56 @@ def test_remove_low_hour_seasons_default_is_true():
         zone=1,
         interconnect_limit=10.0,
     )
-    assert mc.remove_low_hour_seasons is True
+    assert mc.remove_low_hour_planning_years is True
 
 
-def test_remove_low_hour_seasons_false_keeps_short_window():
-    """Setting remove_low_hour_seasons=False retains every classified hour.
+def test_remove_low_hour_planning_years_false_keeps_short_window():
+    """Setting remove_low_hour_planning_years=False retains every classified hour.
 
-    A 48-hour window covers only ~2 days, far below the 85-day threshold.
+    A 48-hour window covers only ~2 days, far below the (8760-24) threshold.
     With the flag off the data is preserved and metrics are computed.
     """
     df = _make_hourly_df("2022-09-01 05:00", 48, {"a": np.linspace(1.0, 4.0, 48)})
-    mc = _make_capacity(df, interconnect_limit=100.0, remove_low_hour_seasons=False)
+    mc = _make_capacity(
+        df, interconnect_limit=100.0, remove_low_hour_planning_years=False
+    )
     assert len(mc.df_h_limit_mw) == 48
-    assert mc.hours_per_year_season == {(2022, "fall"): 48}
+    assert mc.hours_per_planning_year_season == {(2223, "fall"): 48}
     assert ("fall", "a") in mc.tier_1_availability_mw
     assert ("fall", "a") in mc.isac_mw
 
 
-def test_remove_low_hour_seasons_true_drops_below_threshold():
-    """Setting remove_low_hour_seasons=True drops (year, season) pairs below 85 days.
+def test_remove_low_hour_planning_years_true_drops_below_threshold():
+    """Setting remove_low_hour_planning_years=True drops short PYs whole.
 
-    The 48-hour window has far fewer than 85*24=2040 hours, so the entire
-    season is dropped.  The hours_per_year_season audit dict is retained.
+    The 48-hour window has far fewer than (8760-24) hours, so the entire
+    planning year is dropped.  The audit dict is retained.
     """
     df = _make_hourly_df("2022-09-01 05:00", 48, {"a": np.linspace(1.0, 4.0, 48)})
-    mc = _make_capacity(df, interconnect_limit=100.0, remove_low_hour_seasons=True)
+    mc = _make_capacity(
+        df, interconnect_limit=100.0, remove_low_hour_planning_years=True
+    )
     assert mc.df_h_limit_mw.empty
-    assert mc.hours_per_year_season == {(2022, "fall"): 48}
+    assert mc.hours_per_planning_year_season == {(2223, "fall"): 48}
     assert mc.tier_1_availability_mw == {}
     assert mc.tier_2_availability_mw == {}
     assert mc.all_hours_availability_mw == {}
     assert mc.isac_mw == {}
 
 
-def test_remove_low_hour_seasons_threshold_boundary():
-    """Exactly 85 days of hours is kept; one hour fewer is dropped.
+def test_remove_low_hour_planning_years_threshold_boundary():
+    """Exactly (8760-24) hours of a PY is kept; one hour fewer is dropped.
 
-    This pins the ``>=`` (not ``>``) boundary in _drop_low_hour_seasons.
+    Pins the ``>=`` (not ``>``) boundary in _drop_low_hour_planning_years.
     """
-    threshold_hours = 85 * 24
+    threshold_hours = 8760 - 24
     df_kept = _make_hourly_df(
         "2022-09-01 05:00",
         threshold_hours,
         {"a": np.zeros(threshold_hours)},
     )
     mc_kept = _make_capacity(
-        df_kept, interconnect_limit=100.0, remove_low_hour_seasons=True
+        df_kept, interconnect_limit=100.0, remove_low_hour_planning_years=True
     )
     assert len(mc_kept.df_h_limit_mw) == threshold_hours
 
@@ -331,7 +335,7 @@ def test_remove_low_hour_seasons_threshold_boundary():
         {"a": np.zeros(threshold_hours - 1)},
     )
     mc_dropped = _make_capacity(
-        df_dropped, interconnect_limit=100.0, remove_low_hour_seasons=True
+        df_dropped, interconnect_limit=100.0, remove_low_hour_planning_years=True
     )
     assert mc_dropped.df_h_limit_mw.empty
 
@@ -345,24 +349,26 @@ def test_metrics_attributes_populated():
     """All expected metric attributes exist after construction."""
     mc = _availability_capacity()
     for name in (
-        "aaoc_per_year_mw",
-        "hours_per_year_season",
+        "aaoc_per_planning_year_mw",
+        "hours_per_planning_year_season",
         "tier_1_availability_mw",
         "tier_2_availability_mw",
         "all_hours_availability_mw",
         "isac_mw",
-        "remove_low_hour_seasons",
+        "remove_low_hour_planning_years",
     ):
         assert hasattr(mc, name), f"MisoCapacity is missing attribute {name!r}"
 
 
-def test_metrics_aaoc_per_year_matches_direct_mean():
-    """aaoc_per_year matches a direct groupby mean over AAOC-flagged hours."""
+def test_metrics_aaoc_per_planning_year_matches_direct_mean():
+    """aaoc_per_planning_year matches a direct groupby mean over AAOC-flagged hours."""
     mc = _availability_capacity()
     df = mc.df_h_limit_mw
     aaoc_rows = df[df["aaoc_central_north"]]
-    for (year, component), value in mc.aaoc_per_year_mw.items():
-        expected = float(aaoc_rows.loc[aaoc_rows["year"] == year, component].mean())
+    for (planning_year, component), value in mc.aaoc_per_planning_year_mw.items():
+        expected = float(
+            aaoc_rows.loc[aaoc_rows["planning_year"] == planning_year, component].mean()
+        )
         np.testing.assert_allclose(value, expected)
 
 
@@ -453,7 +459,9 @@ def test_metrics_tier_2_pads_to_65_with_per_year_aaoc():
     assert 0 < n_ra < 65, "test window must have a partial RA-hour set"
     assert n_aaoc > 0, "test window must have at least one AAOC hour"
 
-    np.testing.assert_allclose(mc.aaoc_per_year_mw[(2022, "a")], AAOC_VAL / 1000)
+    np.testing.assert_allclose(
+        mc.aaoc_per_planning_year_mw[(2223, "a")], AAOC_VAL / 1000
+    )
     expected_tier_2_a = (
         ((n_ra - n_aaoc) * RA_VAL + n_aaoc * AAOC_VAL + (65 - n_ra) * AAOC_VAL)
         / 65
@@ -732,3 +740,55 @@ def test_get_component_revenue_raises_on_unknown_component():
     mc = _availability_capacity()
     with pytest.raises(ValueError, match="not in component_list"):
         mc.get_component_revenue("nonexistent")
+
+
+# ---------------------------------------------------------------------------
+# 8. RA-hours CSV regression vs MISO Seasonal RA Hour Tabulate
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("planning_year", "subregion", "season", "expected"),
+    [
+        (2223, "central_north", "fall", 65),
+        (2223, "central_north", "winter", 56),
+        (2223, "central_north", "spring", 65),
+        (2223, "central_north", "summer", 65),
+        (2223, "south", "fall", 65),
+        (2223, "south", "winter", 65),
+        (2223, "south", "spring", 65),
+        (2223, "south", "summer", 65),
+        (2324, "central_north", "fall", 65),
+        (2324, "central_north", "winter", 56),
+        (2324, "central_north", "spring", 44),
+        (2324, "central_north", "summer", 65),
+        (2324, "south", "fall", 65),
+        (2324, "south", "winter", 65),
+        (2324, "south", "spring", 65),
+        (2324, "south", "summer", 65),
+        (2425, "central_north", "fall", 65),
+        (2425, "central_north", "winter", 65),
+        (2425, "central_north", "spring", 29),
+        (2425, "central_north", "summer", 65),
+        (2425, "south", "fall", 65),
+        (2425, "south", "winter", 65),
+        (2425, "south", "spring", 65),
+        (2425, "south", "summer", 65),
+    ],
+)
+def test_ra_hours_per_planning_year_season_match_miso_tabulate(
+    planning_year, subregion, season, expected
+):
+    """RA-hour sums per (planning_year, subregion, season) match MISO's tabulate.
+
+    Pins the Seasonal RA Hour Tabulate table from MISO's RA-Hours xlsx
+    against the bundled miso_ra_hours.csv.
+    """
+    df = pd.read_csv(RA_HOURS_CSV_PATH)
+    col = f"ra_{subregion}"
+    mask = (df["planning_year"] == planning_year) & (df["season"] == season)
+    actual = int(df.loc[mask, col].fillna(0).sum())
+    assert actual == expected, (
+        f"RA hours for PY {planning_year} {subregion} {season}: "
+        f"got {actual}, expected {expected}"
+    )

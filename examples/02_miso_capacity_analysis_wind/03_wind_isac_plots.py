@@ -48,8 +48,8 @@ tier1 = [mc.tier_1_availability_mw[(s, COMPONENT)] for s in seasons]
 tier2 = [mc.tier_2_availability_mw[(s, COMPONENT)] for s in seasons]
 isac = [mc.isac_mw[(s, COMPONENT)] for s in seasons]
 
-# AAOC: annual value (not seasonal), use the first (year, component) entry
-aaoc_value = list(mc.aaoc_per_year_mw.values())[0]
+# AAOC: annual value (not seasonal), use the first (planning_year, component) entry
+aaoc_value = list(mc.aaoc_per_planning_year_mw.values())[0]
 
 # Count Tier 1 (non-RA) and Tier 2 (RA) hours per season
 ra_col = f"ra_{mc.subregion}"

@@ -14,3 +14,20 @@ aaoc_central_north                float64
 aaoc_south                        float64
 dtype: object
 ========================================
+Files read: PY 27-28 RA Hours (FALL)743792.xlsx, RA Hours PY 26723002.xlsx
+Date: 2026-05-08 13:39:26
+Rows: 28488
+Time range: 2022-09-01 05:00:00+00:00  ->  2025-12-01 04:00:00+00:00
+Duplicate timestamps: 0
+Gaps (non-1h diffs): 0
+Columns: ['time_utc', 'planning_year', 'season', 'ra_central_north', 'ra_south', 'aaoc_central_north', 'aaoc_south']
+Dtypes:
+time_utc              datetime64[ns, UTC]
+planning_year                       Int16
+season                     string[python]
+ra_central_north                     Int8
+ra_south                             Int8
+aaoc_central_north                   Int8
+aaoc_south                           Int8
+dtype: object
+========================================

@@ -3,6 +3,7 @@
 import calendar
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -17,7 +18,10 @@ ZONE_SUBREGION_CSV_PATH = _INPUTS_DIR / "zone_subregion.csv"
 
 _SEASONS = ("summer", "fall", "winter", "spring")
 _TIER_2_PAD_TARGET = 65
-_LOW_HOUR_SEASON_THRESHOLD_DAYS = 85
+# Drop a planning year (Sept Y -> Aug Y+1) when its total classified hour
+# count is below this threshold.  ``8760 - 24`` allows up to 24 missing
+# hours per PY (e.g. minor data drops or DST edge cases).
+_LOW_HOUR_PLANNING_YEAR_THRESHOLD_HOURS = 8760 - 24
 
 
 def _coerce_to_bool_mask(series: pd.Series, column_name: str) -> pd.Series:
@@ -54,6 +58,123 @@ def _coerce_to_bool_mask(series: pd.Series, column_name: str) -> pd.Series:
         f"Column '{column_name}' must be a bool or 0/1 numeric column, "
         f"got dtype {series.dtype}."
     )
+
+
+def _time_to_planning_year(timestamps: pd.Series) -> pd.Series:
+    """Map UTC timestamps to MISO planning-year codes (e.g. ``2223``).
+
+    The planning year runs Sept Y -> Aug Y+1.  In MISO's reference table
+    the boundary is Sept 1 EST = Sept 1 05:00 UTC; for the purposes of
+    this helper we use the simpler UTC month boundary, which is correct
+    everywhere except a 5-hour window on Sept 1.  The helper is intended
+    only for the standalone coverage plot, where exact-hour fidelity is
+    not required.
+    """
+    years = timestamps.dt.year
+    months = timestamps.dt.month
+    start = years.where(months >= 9, years - 1)
+    return (start % 100) * 100 + (start + 1) % 100
+
+
+def plot_planning_year_coverage(
+    df: pd.DataFrame,
+    save_path: Path | None = None,
+) -> "plt.Figure":
+    """Plot per-column timeseries colored by planning-year completeness.
+
+    Standalone helper that lets a user inspect a raw timeseries and see
+    which MISO planning years (Sept Y -> Aug Y+1) are complete enough to
+    survive :class:`MisoCapacity`'s :attr:`remove_low_hour_planning_years`
+    filter.  Hours belonging to a complete PY (>=
+    :data:`_LOW_HOUR_PLANNING_YEAR_THRESHOLD_HOURS` rows in ``df``) are
+    drawn in black; hours in incomplete PYs are drawn in pale red, since
+    they would be dropped if ``df`` were fed to :class:`MisoCapacity`
+    with the default settings.  An ``<--->`` arrow spanning Sept 1 ->
+    Aug 31 is drawn above each complete PY.
+
+    Args:
+        df (pd.DataFrame): Tidy frame with a tz-aware UTC ``time_utc``
+            column and at least one numeric data column.
+        save_path (Path | None): If provided, save the figure here.
+
+    Returns:
+        matplotlib.figure.Figure: The created figure.
+    """
+    if "time_utc" not in df.columns:
+        raise ValueError("DataFrame must contain a 'time_utc' column.")
+    if df["time_utc"].dt.tz is None or str(df["time_utc"].dt.tz) != "UTC":
+        raise ValueError("Time_utc column must be in UTC timezone.")
+    data_cols = [c for c in df.columns if c != "time_utc"]
+    if not data_cols:
+        raise ValueError("DataFrame must contain at least one non-time_utc column.")
+
+    df_plot = df.copy()
+    df_plot["planning_year"] = _time_to_planning_year(df_plot["time_utc"])
+    py_counts = df_plot.groupby("planning_year").size()
+    complete_pys = sorted(
+        int(py)
+        for py, n in py_counts.items()
+        if n >= _LOW_HOUR_PLANNING_YEAR_THRESHOLD_HOURS
+    )
+    is_complete = df_plot["planning_year"].isin(complete_pys)
+
+    fig, axes = plt.subplots(
+        len(data_cols), 1, figsize=(11, 2.5 * len(data_cols)), sharex=True
+    )
+    if len(data_cols) == 1:
+        axes = [axes]
+
+    times = df_plot["time_utc"]
+    for ax, col in zip(axes, data_cols, strict=True):
+        ax.scatter(
+            times[~is_complete],
+            df_plot.loc[~is_complete, col],
+            s=4,
+            color="#f4b6b6",
+            label="incomplete PY (will be dropped)",
+        )
+        ax.scatter(
+            times[is_complete],
+            df_plot.loc[is_complete, col],
+            s=4,
+            color="black",
+            label="complete PY",
+        )
+        ax.set_ylabel(col)
+        ax.grid(True, alpha=0.3)
+
+        # Arrow + label above the data for each complete PY.
+        y_top = ax.get_ylim()[1]
+        for py in complete_pys:
+            start_year = 2000 + py // 100
+            start = pd.Timestamp(f"{start_year}-09-01", tz="UTC")
+            end = pd.Timestamp(f"{start_year + 1}-09-01", tz="UTC")
+            ax.annotate(
+                "",
+                xy=(end, y_top),
+                xytext=(start, y_top),
+                arrowprops={"arrowstyle": "<->", "color": "tab:blue", "lw": 1.5},
+                annotation_clip=False,
+            )
+            mid = start + (end - start) / 2
+            ax.text(
+                mid,
+                y_top,
+                f"PY {py}",
+                ha="center",
+                va="bottom",
+                color="tab:blue",
+                fontsize=9,
+            )
+
+    axes[0].legend(loc="upper right", fontsize=8)
+    axes[-1].set_xlabel("time_utc")
+    fig.suptitle("Planning-year coverage")
+    fig.tight_layout()
+
+    if save_path is not None:
+        fig.savefig(save_path)
+    return fig
 
 
 def compute_battery_availability(
@@ -186,7 +307,7 @@ class MisoCapacity:
         interconnect_limit: float,
         pra_years: int | list[int] | None = None,
         priority_order: list[str] | dict[str, list[str]] | None = None,
-        remove_low_hour_seasons: bool = True,
+        remove_low_hour_planning_years: bool = True,
         verbose: bool = False,
     ):
         """Initialize a MisoCapacity analysis for the given components.
@@ -214,13 +335,14 @@ class MisoCapacity:
                 ``None`` applies pro-rata scaling; a list applies the same
                 priority every season; a dict keyed by season applies
                 per-season priorities.
-            remove_low_hour_seasons (bool): When ``True`` (default), any
-                ``(year, season)`` pair with fewer than
-                ``_LOW_HOUR_SEASON_THRESHOLD_DAYS * 24`` hours is excluded
-                from the availability metrics.  Set to ``False`` in unit
-                tests that use short windows.
+            remove_low_hour_planning_years (bool): When ``True`` (default),
+                any planning year (Sept Y -> Aug Y+1) with fewer than
+                ``_LOW_HOUR_PLANNING_YEAR_THRESHOLD_HOURS`` classified
+                hours is excluded *in its entirety* (all four seasons
+                together) from the availability metrics.  Set to
+                ``False`` in unit tests that use short windows.
             verbose (bool): When ``True``, log diagnostic messages (e.g.
-                which (year, season) pairs were dropped).
+                which planning years were dropped).
         """
         # Save the verbose flag
         self.verbose = verbose
@@ -228,12 +350,12 @@ class MisoCapacity:
         # Convert kW input to MW for all internal calculations
         self.interconnect_limit_mw = interconnect_limit / 1000.0
 
-        # When True (default), any (year, season) pair in
-        # ``df_h_limit_mw`` with fewer than
-        # ``_LOW_HOUR_SEASON_THRESHOLD_DAYS * 24`` classified hours is
-        # dropped before the per-component availability metrics are
-        # computed.  Set to False for unit tests on small windows.
-        self.remove_low_hour_seasons = remove_low_hour_seasons
+        # When True (default), any planning year in ``df_h_limit_mw``
+        # with fewer than ``_LOW_HOUR_PLANNING_YEAR_THRESHOLD_HOURS``
+        # classified hours is dropped *whole* (all four seasons together)
+        # before the per-component availability metrics are computed.
+        # Set to False for unit tests on small windows.
+        self.remove_low_hour_planning_years = remove_low_hour_planning_years
 
         # Check that component_list and class_list are lists of strings
         if not isinstance(component_list, list) or not all(
@@ -345,15 +467,16 @@ class MisoCapacity:
 
         # Compute per-component availability metrics off the limit-capped
         # hourly frame.  Order matters:
-        #   1. Capture per-(year, season) hour counts from the original
-        #      ``df_h_limit_mw`` (so the diagnostic survives any later drops).
-        #   2. Optionally drop sparsely-covered (year, season) pairs.
-        #   3. Compute per-year, per-component AAOC means used for the
+        #   1. Capture per-(planning_year, season) hour counts from the
+        #      original ``df_h_limit_mw`` (so the diagnostic survives any
+        #      later drops).
+        #   2. Optionally drop sparsely-covered planning years (whole-PY).
+        #   3. Compute per-PY, per-component AAOC means used for the
         #      tier-2 padding step.
         #   4. Compute the tier-1 / tier-2 / all-hours / ISAC dicts.
-        self.hours_per_year_season = self._compute_hour_counts()
-        self.df_h_limit_mw = self._drop_low_hour_seasons()
-        self.aaoc_per_year_mw = self._compute_aaoc_per_year()
+        self.hours_per_planning_year_season = self._compute_hour_counts()
+        self.df_h_limit_mw = self._drop_low_hour_planning_years()
+        self.aaoc_per_planning_year_mw = self._compute_aaoc_per_planning_year()
         (
             self.tier_1_availability_mw,
             self.tier_2_availability_mw,
@@ -460,8 +583,9 @@ class MisoCapacity:
         is then inner-joined to the bundled MISO RA-hour reference table on
         ``time_utc``.  The RA and AAOC flag columns selected by
         :attr:`subregion` (i.e. ``ra_<subregion>`` and ``aaoc_<subregion>``)
-        are coerced to clean booleans, and a ``year`` column derived from
-        ``time_utc`` is appended for downstream use.
+        are coerced to clean booleans.  ``planning_year`` (MISO planning
+        year encoded as int ``YYYY``, e.g. ``2223`` for Sept 2022 -> Aug
+        2023) is carried through directly from the reference table.
 
         Args:
             df (pd.DataFrame): DataFrame containing at minimum a
@@ -471,9 +595,9 @@ class MisoCapacity:
         Returns:
             pd.DataFrame: Hourly DataFrame with ``time_utc``, every column
             in :attr:`component_list` (values in MW, inherited from the
-            input ``df``), the ``season``, ``ra_<subregion>``, and
-            ``aaoc_<subregion>`` columns from the reference table, and a
-            ``year`` column.
+            input ``df``), the ``planning_year``, ``season``,
+            ``ra_<subregion>``, and ``aaoc_<subregion>`` columns from the
+            reference table.
         """
         df_hourly = (
             df.groupby(df["time_utc"].dt.floor("h"))[self.component_list]
@@ -494,7 +618,7 @@ class MisoCapacity:
         df_merge[ra_column] = _coerce_to_bool_mask(df_merge[ra_column], ra_column)
         df_merge[aaoc_column] = _coerce_to_bool_mask(df_merge[aaoc_column], aaoc_column)
 
-        df_merge["year"] = df_merge["time_utc"].dt.year
+        df_merge["planning_year"] = df_merge["planning_year"].astype(int)
 
         return df_merge
 
@@ -524,7 +648,7 @@ class MisoCapacity:
             :attr:`component_list` reduced so that the per-hour row-sum
             is at most :attr:`interconnect_limit`.  All other columns
             (``season``, ``ra_<subregion>``, ``aaoc_<subregion>``,
-            ``year``, ...) are passed through unchanged.
+            ``planning_year``, ...) are passed through unchanged.
         """
         df_h_limit = self.df_h_mw.copy()
         components = self.component_list
@@ -563,89 +687,88 @@ class MisoCapacity:
 
         return df_h_limit
 
-    def _compute_aaoc_per_year(self) -> dict[tuple[int, str], float]:
-        """Compute per-year, per-component mean availability over AAOC hours.
+    def _compute_aaoc_per_planning_year(self) -> dict[tuple[int, str], float]:
+        """Compute per-PY, per-component mean availability over AAOC hours.
 
-        Operates on :attr:`df_h_limit_mw`.  Years with no AAOC hours in
-        :attr:`df_h_limit_mw` are simply absent from the returned dict;
-        subsequent tier-2 padding falls back to ``NaN`` for those years
-        rather than raising.
+        Operates on :attr:`df_h_limit_mw`.  Planning years with no AAOC
+        hours in :attr:`df_h_limit_mw` are simply absent from the
+        returned dict; subsequent tier-2 padding falls back to ``NaN``
+        for those planning years rather than raising.
 
         Returns:
             dict[tuple[int, str], float]: Mapping from
-            ``(year, component)`` to the mean of ``component`` over
-            AAOC hours in that ``year``.
+            ``(planning_year, component)`` to the mean of ``component``
+            over AAOC hours in that planning year.
         """
         aaoc_column = f"aaoc_{self.subregion}"
         df_aaoc = self.df_h_limit_mw[self.df_h_limit_mw[aaoc_column]]
         if df_aaoc.empty:
             return {}
 
-        per_year = df_aaoc.groupby("year")[self.component_list].mean()
+        per_py = df_aaoc.groupby("planning_year")[self.component_list].mean()
         return {
-            (int(year), component): float(per_year.loc[year, component])
-            for year in per_year.index
+            (int(planning_year), component): float(per_py.loc[planning_year, component])
+            for planning_year in per_py.index
             for component in self.component_list
         }
 
     def _compute_hour_counts(self) -> dict[tuple[int, str], int]:
-        """Compute the per-(year, season) hour-count diagnostic.
+        """Compute the per-(planning_year, season) hour-count diagnostic.
 
         Counts the classified hours present in :attr:`df_h_limit_mw` for
-        each ``(year, season)`` pair.  Should be called *before*
-        :meth:`_drop_low_hour_seasons` so the dict reflects the
+        each ``(planning_year, season)`` pair.  Should be called *before*
+        :meth:`_drop_low_hour_planning_years` so the dict reflects the
         original coverage of the input simulation, not the post-filter
         coverage.
 
         Returns:
-            dict[tuple[int, str], int]: Mapping from ``(year, season)``
-            to the count of classified hours in :attr:`df_h_limit_mw`.
+            dict[tuple[int, str], int]: Mapping from
+            ``(planning_year, season)`` to the count of classified hours
+            in :attr:`df_h_limit_mw`.
         """
-        per_year_season = self.df_h_limit_mw.groupby(["year", "season"]).size()
+        per_py_season = self.df_h_limit_mw.groupby(["planning_year", "season"]).size()
         return {
-            (int(year), str(season)): int(count)
-            for (year, season), count in per_year_season.items()
+            (int(planning_year), str(season)): int(count)
+            for (planning_year, season), count in per_py_season.items()
         }
 
-    def _drop_low_hour_seasons(self) -> pd.DataFrame:
-        """Drop sparsely-covered ``(year, season)`` pairs from :attr:`df_h_limit_mw`.
+    def _drop_low_hour_planning_years(self) -> pd.DataFrame:
+        """Drop sparsely-covered planning years from :attr:`df_h_limit_mw`.
 
-        When :attr:`remove_low_hour_seasons` is True, any
-        ``(year, season)`` pair whose entry in
-        :attr:`hours_per_year_season` is below
-        ``_LOW_HOUR_SEASON_THRESHOLD_DAYS * 24`` is dropped from the
-        returned frame so it cannot contaminate the per-component
-        availability statistics with partial-season noise.
-        :attr:`hours_per_year_season` itself is left untouched as a
-        diagnostic of the *original* coverage; callers can compare it
-        against the returned frame to see what was dropped.
+        When :attr:`remove_low_hour_planning_years` is True, any planning
+        year whose total classified-hour count in :attr:`df_h_limit_mw`
+        is below :data:`_LOW_HOUR_PLANNING_YEAR_THRESHOLD_HOURS` is
+        dropped *whole* (all four seasons together) so partial coverage
+        cannot contaminate the per-component availability statistics.
+        :attr:`hours_per_planning_year_season` itself is left untouched
+        as a diagnostic of the *original* coverage; callers can compare
+        it against the returned frame to see what was dropped.
 
-        When :attr:`remove_low_hour_seasons` is False, the input
+        When :attr:`remove_low_hour_planning_years` is False, the input
         :attr:`df_h_limit_mw` is returned unchanged.
 
         Returns:
             pd.DataFrame: The filtered (or unchanged)
             :attr:`df_h_limit_mw`.
         """
-        if not self.remove_low_hour_seasons:
+        if not self.remove_low_hour_planning_years:
             return self.df_h_limit_mw
 
-        threshold_hours = _LOW_HOUR_SEASON_THRESHOLD_DAYS * 24
+        threshold_hours = _LOW_HOUR_PLANNING_YEAR_THRESHOLD_HOURS
         df = self.df_h_limit_mw
-        group_sizes = df.groupby(["year", "season"])["year"].transform("size")
-        keep_mask = group_sizes >= threshold_hours
+        py_sizes = df.groupby("planning_year")["planning_year"].transform("size")
+        keep_mask = py_sizes >= threshold_hours
         if keep_mask.all():
             return df
 
         if self.verbose:
+            py_totals = df.groupby("planning_year").size()
             dropped = sorted(
-                key
-                for key, count in self.hours_per_year_season.items()
-                if count < threshold_hours
+                int(py) for py, count in py_totals.items() if count < threshold_hours
             )
             print(
-                f"[MisoCapacity] dropping {len(dropped)} (year, season) "
-                f"pair(s) with < {threshold_hours} hours: {dropped}"
+                f"[MisoCapacity] dropping {len(dropped)} planning year(s) "
+                f"with < {threshold_hours} hours: {dropped}"
             )
         return df.loc[keep_mask].reset_index(drop=True)
 
@@ -659,33 +782,35 @@ class MisoCapacity:
     ]:
         """Compute per-(season, component) tier 1/2, all-hours, and ISAC means.
 
-        Operates on :attr:`df_h_limit_mw` and assumes :attr:`aaoc_per_year_mw`
-        has already been populated by :meth:`_compute_aaoc_per_year`.
+        Operates on :attr:`df_h_limit_mw` and assumes
+        :attr:`aaoc_per_planning_year_mw` has already been populated by
+        :meth:`_compute_aaoc_per_planning_year`.
 
         For each ``(season, component)`` pair, four values are produced:
 
         - ``tier_1_availability``: mean of ``component`` over hours
-          that are NOT seasonal RA hours, pooled across every year
-          present in :attr:`df_h_limit_mw`.
+          that are NOT seasonal RA hours, pooled across every planning
+          year present in :attr:`df_h_limit_mw`.
         - ``tier_2_availability``: mean of ``component`` over seasonal
-          RA hours, pooled across years.  For any ``(year, season)``
-          combination with fewer than 65 RA hours, that year's
-          contribution is right-padded up to 65 entries using
-          ``self.aaoc_per_year_mw[(year, component)]`` before being
-          concatenated.  ``(year, season)`` combinations with zero
-          classified hours in :attr:`df_h_limit_mw` are skipped entirely
-          (no synthetic AAOC padding).
+          RA hours, pooled across planning years.  For any
+          ``(planning_year, season)`` combination with fewer than 65
+          RA hours, that planning year's contribution is right-padded
+          up to 65 entries using
+          ``self.aaoc_per_planning_year_mw[(planning_year, component)]``
+          before being concatenated.  Combinations with zero classified
+          hours in :attr:`df_h_limit_mw` are skipped entirely (no
+          synthetic AAOC padding).
         - ``all_hours_availability``: mean of ``component`` over every
           classified hour in the season.
         - ``isac_mw``: ``0.2 * tier_1_mw + 0.8 * tier_2_mw``.
 
-        When a ``(year, season)`` combination has fewer than 65 RA
-        hours and the same ``year`` has no AAOC entry in
-        :attr:`aaoc_per_year`, padding falls back to ``NaN``; the
-        resulting tier-2 mean (and therefore ISAC) for any
-        ``(season, component)`` whose data depends on that year
-        propagates as ``NaN``, making partial-year coverage visible to
-        the caller via the output dicts.
+        When a ``(planning_year, season)`` combination has fewer than
+        65 RA hours and the same planning year has no AAOC entry in
+        :attr:`aaoc_per_planning_year_mw`, padding falls back to
+        ``NaN``; the resulting tier-2 mean (and therefore ISAC) for any
+        ``(season, component)`` whose data depends on that planning
+        year propagates as ``NaN``, making partial-PY coverage visible
+        to the caller via the output dicts.
 
         Returns:
             tuple[dict, dict, dict, dict]: A 4-tuple
@@ -696,7 +821,7 @@ class MisoCapacity:
         ra_column = f"ra_{self.subregion}"
         df = self.df_h_limit_mw
         seasons = df["season"].unique()
-        years = sorted(int(y) for y in df["year"].unique())
+        planning_years = sorted(int(py) for py in df["planning_year"].unique())
 
         tier_1_availability: dict[tuple[str, str], float] = {}
         tier_2_availability: dict[tuple[str, str], float] = {}
@@ -709,33 +834,33 @@ class MisoCapacity:
                 tier_1_values: list[np.ndarray] = []
                 tier_2_values: list[np.ndarray] = []
 
-                for year in years:
-                    df_year_season = df_season[df_season["year"] == year]
-                    if df_year_season.empty:
-                        # Skip (year, season) pairs with no classified
-                        # hours so partial years don't inject synthetic
-                        # AAOC-padded entries into tier 2.
+                for planning_year in planning_years:
+                    df_py_season = df_season[
+                        df_season["planning_year"] == planning_year
+                    ]
+                    if df_py_season.empty:
+                        # Skip (planning_year, season) pairs with no
+                        # classified hours so partial PYs don't inject
+                        # synthetic AAOC-padded entries into tier 2.
                         continue
 
                     tier_1_values.append(
-                        df_year_season.loc[
-                            ~df_year_season[ra_column], component
-                        ].to_numpy()
+                        df_py_season.loc[~df_py_season[ra_column], component].to_numpy()
                     )
-                    tier_2_year = df_year_season.loc[
-                        df_year_season[ra_column], component
+                    tier_2_py = df_py_season.loc[
+                        df_py_season[ra_column], component
                     ].to_numpy()
-                    if len(tier_2_year) < _TIER_2_PAD_TARGET:
-                        pad_value = self.aaoc_per_year_mw.get(
-                            (year, component), float("nan")
+                    if len(tier_2_py) < _TIER_2_PAD_TARGET:
+                        pad_value = self.aaoc_per_planning_year_mw.get(
+                            (planning_year, component), float("nan")
                         )
-                        tier_2_year = np.pad(
-                            tier_2_year,
-                            (0, _TIER_2_PAD_TARGET - len(tier_2_year)),
+                        tier_2_py = np.pad(
+                            tier_2_py,
+                            (0, _TIER_2_PAD_TARGET - len(tier_2_py)),
                             mode="constant",
                             constant_values=pad_value,
                         )
-                    tier_2_values.append(tier_2_year)
+                    tier_2_values.append(tier_2_py)
 
                 tier_1_arr = (
                     np.concatenate(tier_1_values) if tier_1_values else np.array([])
@@ -986,7 +1111,7 @@ class MisoCapacity:
         season's PRA clearing price ($/MW-day) and the number of days in
         that season.  Only ``(season, component)`` pairs present in
         :attr:`zrc_mw` contribute; seasons absent from :attr:`df_h_limit_mw` (e.g.
-        because they were filtered by :meth:`_drop_low_hour_seasons`) will
+        because they were filtered by :meth:`_drop_low_hour_planning_years`) will
         not appear in the returned dict.
 
         Assumes :attr:`zrc_mw`, :attr:`pra_prices`, and :attr:`days_per_season`
@@ -1032,7 +1157,7 @@ class MisoCapacity:
         winter, spring) and one row per metric, in the same order as the
         :meth:`__init__` computation flow.  Seasons absent from
         :attr:`df_h_limit_mw` (e.g. filtered by
-        :meth:`_drop_low_hour_seasons`) show ``NaN``.
+        :meth:`_drop_low_hour_planning_years`) show ``NaN``.
 
         Args:
             component (str): A component name from :attr:`component_list`.
@@ -1179,3 +1304,140 @@ class MisoCapacity:
                 f"Component '{component}' not in component_list: {self.component_list}."
             )
         return self.annual_revenue[component]
+
+    def _plot_stacked_bar_by_season(
+        self,
+        values: dict[tuple[str, str], float],
+        ylabel: str,
+        title: str,
+        bar_label_fmt: str,
+        ax: "plt.Axes | None" = None,
+        save_path: Path | None = None,
+    ) -> "plt.Figure":
+        """Render a per-season stacked bar plot keyed by ``(season, component)``.
+
+        Shared backend for :meth:`plot_sac_stacked_bar` and
+        :meth:`plot_revenue_stacked_bar`.  Missing ``(season, component)``
+        entries are treated as zero.
+
+        Args:
+            values (dict[tuple[str, str], float]): Mapping from
+                ``(season, component)`` to the per-season value to plot.
+            ylabel (str): Y-axis label.
+            title (str): Axes title.
+            bar_label_fmt (str): Format string applied to each season's
+                stacked total, e.g. ``"{:,.1f}"`` or ``"${:,.0f}"``.
+            ax (plt.Axes | None): Existing axes to draw into.  When
+                ``None`` a new figure/axes pair is created.
+            save_path (Path | None): If provided, save the figure here.
+
+        Returns:
+            plt.Figure: The matplotlib figure containing the plot.
+        """
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(7, 4.5))
+        else:
+            fig = ax.figure
+
+        seasons = list(_SEASONS)
+        x = np.arange(len(seasons))
+        bottoms = np.zeros(len(seasons), dtype=float)
+        color_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+        for idx, component in enumerate(self.component_list):
+            heights = np.array(
+                [
+                    float(values.get((season, component), 0.0) or 0.0)
+                    for season in seasons
+                ]
+            )
+            ax.bar(
+                x,
+                heights,
+                bottom=bottoms,
+                label=component,
+                color=color_cycle[idx % len(color_cycle)],
+            )
+            bottoms = bottoms + heights
+
+        for xi, total in zip(x, bottoms, strict=True):
+            ax.text(
+                xi,
+                total,
+                bar_label_fmt.format(total),
+                ha="center",
+                va="bottom",
+                fontsize=9,
+            )
+
+        ax.set_xticks(x)
+        ax.set_xticklabels([s.capitalize() for s in seasons])
+        ax.set_xlabel("Season")
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        ax.margins(y=0.12)
+        ax.legend(loc="best", fontsize=9)
+        fig.tight_layout()
+
+        if save_path is not None:
+            fig.savefig(save_path)
+        return fig
+
+    def plot_sac_stacked_bar(
+        self,
+        ax: "plt.Axes | None" = None,
+        save_path: Path | None = None,
+    ) -> "plt.Figure":
+        """Plot per-season SAC as a stacked bar chart, colored by component.
+
+        For each MISO season (summer, fall, winter, spring) draws a single
+        bar whose height is the total Seasonal Accredited Capacity (MW)
+        across all components in :attr:`component_list`, stacked and
+        colored by component.  The total height is annotated above each
+        bar.
+
+        Args:
+            ax (plt.Axes | None): Existing axes to draw into.  When
+                ``None`` a new figure/axes pair is created.
+            save_path (Path | None): If provided, save the figure here.
+
+        Returns:
+            plt.Figure: The matplotlib figure containing the plot.
+        """
+        return self._plot_stacked_bar_by_season(
+            values=self.sac_mw,
+            ylabel="SAC (MW)",
+            title="Seasonal Accredited Capacity by component",
+            bar_label_fmt="{:,.1f}",
+            ax=ax,
+            save_path=save_path,
+        )
+
+    def plot_revenue_stacked_bar(
+        self,
+        ax: "plt.Axes | None" = None,
+        save_path: Path | None = None,
+    ) -> "plt.Figure":
+        """Plot per-season capacity revenue as a stacked bar chart.
+
+        For each MISO season (summer, fall, winter, spring) draws a single
+        bar whose height is the total capacity revenue (USD) across all
+        components in :attr:`component_list`, stacked and colored by
+        component.  The total height is annotated above each bar.
+
+        Args:
+            ax (plt.Axes | None): Existing axes to draw into.  When
+                ``None`` a new figure/axes pair is created.
+            save_path (Path | None): If provided, save the figure here.
+
+        Returns:
+            plt.Figure: The matplotlib figure containing the plot.
+        """
+        return self._plot_stacked_bar_by_season(
+            values=self.revenue_per_season,
+            ylabel="Revenue ($)",
+            title="Capacity revenue by component",
+            bar_label_fmt="${:,.0f}",
+            ax=ax,
+            save_path=save_path,
+        )

@@ -26,15 +26,12 @@ oa = OutputAnalysis(DATA_DIR / "hercules_output.h5")
 df_raw = oa.df[["time_utc", "wind_farm.power"]].copy()
 
 # Build two MisoCapacity objects — one at each limit.
-# remove_low_hour_seasons=False because the simulation is a partial year and
-# winter falls below the 85-day threshold.
 mc_real = MisoCapacity(
     component_list=["wind_farm.power"],
     class_list=["wind"],
     df=df_raw,
     zone=ZONE,
     interconnect_limit=REAL_LIMIT_KW,
-    remove_low_hour_seasons=False,
 )
 
 mc_tight = MisoCapacity(
@@ -43,7 +40,6 @@ mc_tight = MisoCapacity(
     df=df_raw,
     zone=ZONE,
     interconnect_limit=TIGHT_LIMIT_KW,
-    remove_low_hour_seasons=False,
 )
 
 # df_h_mw     — hourly data before any capping (MW, averaged to the hour)
