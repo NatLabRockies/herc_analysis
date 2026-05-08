@@ -210,7 +210,9 @@ class TotalMetrics:
         """
         n_pts_4h = int(4 * 3600 / oa.dt_log)
         comp_dict = oa.h_dict.get(name, {})
-        energy_cap = comp_dict.get("energy_capacity", 0)
+        # energy_capacity is stored in kWh in the Hercules H5 dict;
+        # convert to MWh for the revenue calculation below.
+        energy_cap_mwh = comp_dict.get("energy_capacity", 0) / 1000.0
 
         if "time_utc" in df.columns:
             grp = df.groupby(df["time_utc"].dt.date)
@@ -231,8 +233,8 @@ class TotalMetrics:
         )
 
         return {
-            "optimum_tb4_revenue_rt_k": daily_tb4_rt.sum() * energy_cap / 1e6,
-            "optimum_tb4_revenue_da_k": daily_tb4_da.sum() * energy_cap / 1e6,
+            "optimum_tb4_revenue_rt_k": daily_tb4_rt.sum() * energy_cap_mwh / 1e3,
+            "optimum_tb4_revenue_da_k": daily_tb4_da.sum() * energy_cap_mwh / 1e3,
         }
 
     # ------------------------------------------------------------------

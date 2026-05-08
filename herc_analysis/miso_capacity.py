@@ -98,7 +98,8 @@ def compute_battery_availability(
 
     Returns:
         pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]: A copy of
-        ``df`` with the ``{component_name}_availability`` column added.
+        ``df`` with the ``{component_name}_availability`` column added
+        (units match the input power column, typically kW).
         If ``return_df_hour`` is True, a tuple ``(df_return, df_hour)``
         is returned instead, where ``df_hour`` is the hourly
         intermediate DataFrame.
@@ -469,9 +470,10 @@ class MisoCapacity:
 
         Returns:
             pd.DataFrame: Hourly DataFrame with ``time_utc``, every column
-            in :attr:`component_list`, the ``season``, ``ra_<subregion>``,
-            and ``aaoc_<subregion>`` columns from the reference table, and
-            a ``year`` column.
+            in :attr:`component_list` (values in MW, inherited from the
+            input ``df``), the ``season``, ``ra_<subregion>``, and
+            ``aaoc_<subregion>`` columns from the reference table, and a
+            ``year`` column.
         """
         df_hourly = (
             df.groupby(df["time_utc"].dt.floor("h"))[self.component_list]
