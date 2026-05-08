@@ -6,300 +6,18 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-RA_HOURS_FEATHER_PATH = (
-    Path(__file__).parent / "miso_capacity_inputs" / "miso_ra_hours.feather"
-)
+_INPUTS_DIR = Path(__file__).parent / "miso_capacity_inputs"
+RA_HOURS_CSV_PATH = _INPUTS_DIR / "miso_ra_hours.csv"
+PRA_PRICES_CSV_PATH = _INPUTS_DIR / "pra_prices_usd_per_mw_day.csv"
+RESOURCE_CLASS_UCAP_CSV_PATH = _INPUTS_DIR / "resource_class_ucap_mw.csv"
+RESOURCE_CLASS_ISAC_CSV_PATH = _INPUTS_DIR / "resource_class_isac_mw.csv"
+DAYS_PER_SEASON_CSV_PATH = _INPUTS_DIR / "days_per_season.csv"
+DAYS_PER_SEASON_LEAP_YEAR_CSV_PATH = _INPUTS_DIR / "days_per_season_leap_year.csv"
+ZONE_SUBREGION_CSV_PATH = _INPUTS_DIR / "zone_subregion.csv"
 
-_VALID_NORTH_SOUTH = {"north", "south"}
-
-
-# MISO Planning Resource Auction (PRA) clearing prices in $/MW-day,
-# indexed as PRA_PRICES_USD_PER_MW_DAY[year][zone][season].  Zones
-# 1-7 are the North/Central region; zones 8-10 are the South region.
-# Seasons follow MISO's seasonal construct (summer, fall, winter,
-# spring).  Source: MISO PRA results announcements.
-PRA_PRICES_USD_PER_MW_DAY: dict[int, dict[int, dict[str, float]]] = {
-    2025: {
-        1: {"summer": 666.50, "fall": 91.60, "winter": 33.20, "spring": 69.88},
-        2: {"summer": 666.50, "fall": 91.60, "winter": 33.20, "spring": 69.88},
-        3: {"summer": 666.50, "fall": 91.60, "winter": 33.20, "spring": 69.88},
-        4: {"summer": 666.50, "fall": 91.60, "winter": 33.20, "spring": 69.88},
-        5: {"summer": 666.50, "fall": 91.60, "winter": 33.20, "spring": 69.88},
-        6: {"summer": 666.50, "fall": 91.60, "winter": 33.20, "spring": 69.88},
-        7: {"summer": 666.50, "fall": 91.60, "winter": 33.20, "spring": 69.88},
-        8: {"summer": 666.50, "fall": 74.09, "winter": 33.20, "spring": 69.88},
-        9: {"summer": 666.50, "fall": 74.09, "winter": 33.20, "spring": 69.88},
-        10: {"summer": 666.50, "fall": 74.09, "winter": 33.20, "spring": 69.88},
-    },
-    2026: {
-        1: {"summer": 424.30, "fall": 33.92, "winter": 35.97, "spring": 7.61},
-        2: {"summer": 424.30, "fall": 33.92, "winter": 35.97, "spring": 7.61},
-        3: {"summer": 424.30, "fall": 33.92, "winter": 35.97, "spring": 7.61},
-        4: {"summer": 424.30, "fall": 33.92, "winter": 35.97, "spring": 7.61},
-        5: {"summer": 424.30, "fall": 33.92, "winter": 35.97, "spring": 7.61},
-        6: {"summer": 424.30, "fall": 33.92, "winter": 35.97, "spring": 7.61},
-        7: {"summer": 424.30, "fall": 33.92, "winter": 35.97, "spring": 7.61},
-        8: {"summer": 384.10, "fall": 33.92, "winter": 35.97, "spring": 7.61},
-        9: {"summer": 412.10, "fall": 33.92, "winter": 35.97, "spring": 7.61},
-        10: {"summer": 384.10, "fall": 33.92, "winter": 35.97, "spring": 7.61},
-    },
-}
-
-
-def get_acp(season: str, zone: int, year: int) -> float:
-    """Get the MISO Auction Clearing Price (ACP) for a season/zone/year.
-
-    Looks up the published MISO Planning Resource Auction (PRA)
-    clearing price from :data:`PRA_PRICES_USD_PER_MW_DAY`.
-
-    Args:
-        season (str): MISO season name. Must be one of ``"summer"``,
-            ``"fall"``, ``"winter"``, ``"spring"``.
-        zone (int): MISO Local Resource Zone (1-10).  Zones 1-7 are the
-            North/Central region; zones 8-10 are the South region.
-        year (int): Planning year of the PRA result to look up.
-
-    Returns:
-        float: ACP in $/MW-day for the requested ``(year, zone, season)``.
-
-    Raises:
-        KeyError: If ``year``, ``zone``, or ``season`` is not present in
-            :data:`PRA_PRICES_USD_PER_MW_DAY`.
-    """
-    try:
-        return PRA_PRICES_USD_PER_MW_DAY[year][zone][season]
-    except KeyError as err:
-        raise KeyError(
-            f"No ACP available for year={year}, zone={zone}, season={season!r}. "
-            f"Valid years: {sorted(PRA_PRICES_USD_PER_MW_DAY)}; "
-            f"valid zones: 1-10; "
-            f"valid seasons: ['summer', 'fall', 'winter', 'spring']."
-        ) from err
-
-
-# MISO resource-class UCAP totals in MW, indexed as
-# RESOURCE_CLASS_UCAP_MW[resource_class][season].  Values reflect the
-# system-level Unforced Capacity (UCAP) attributed to each resource class
-# in MISO's seasonal capacity construct.  Source: MISO PY 27-28 RA Hours
-# (Fall) reference workbook.
-RESOURCE_CLASS_UCAP_MW: dict[str, dict[str, float]] = {
-    "biomass": {"summer": 386.0, "fall": 360.0, "winter": 367.0, "spring": 343.0},
-    "coal": {
-        "summer": 31022.0,
-        "fall": 25352.0,
-        "winter": 24389.0,
-        "spring": 20593.0,
-    },
-    "combined_cycle": {
-        "summer": 24080.0,
-        "fall": 20388.0,
-        "winter": 20598.0,
-        "spring": 18565.0,
-    },
-    "dual_fuel_oil_gas": {
-        "summer": 6496.0,
-        "fall": 5635.0,
-        "winter": 5299.0,
-        "spring": 5369.0,
-    },
-    "gas": {
-        "summer": 25010.0,
-        "fall": 20602.0,
-        "winter": 19300.0,
-        "spring": 18114.0,
-    },
-    "nuclear": {
-        "summer": 10814.0,
-        "fall": 9724.0,
-        "winter": 9937.0,
-        "spring": 9625.0,
-    },
-    "oil": {"summer": 507.0, "fall": 465.0, "winter": 305.0, "spring": 326.0},
-    "pumped_storage": {
-        "summer": 2528.0,
-        "fall": 1972.0,
-        "winter": 2212.0,
-        "spring": 1798.0,
-    },
-    "reservoir_hydro": {
-        "summer": 455.0,
-        "fall": 377.0,
-        "winter": 411.0,
-        "spring": 384.0,
-    },
-    "run_of_river_hydro": {
-        "summer": 509.0,
-        "fall": 325.0,
-        "winter": 446.0,
-        "spring": 476.0,
-    },
-    "solar": {"summer": 5287.0, "fall": 249.0, "winter": 178.0, "spring": 487.0},
-    "storage": {"summer": 289.0, "fall": 32.0, "winter": 33.0, "spring": 100.0},
-    "wind": {"summer": 2079.0, "fall": 3282.0, "winter": 6682.0, "spring": 4086.0},
-}
-
-
-# MISO resource-class ISAC totals in MW, indexed as
-# RESOURCE_CLASS_ISAC_MW[resource_class][season].  Values reflect the
-# system-level Installed Seasonal Accredited Capacity (ISAC) attributed
-# to each resource class in MISO's seasonal capacity construct.  Source:
-# MISO PY 27-28 RA Hours (Fall) reference workbook.
-RESOURCE_CLASS_ISAC_MW: dict[str, dict[str, float]] = {
-    "biomass": {"summer": 445.0, "fall": 433.0, "winter": 428.0, "spring": 421.0},
-    "coal": {
-        "summer": 31881.0,
-        "fall": 30674.0,
-        "winter": 31038.0,
-        "spring": 25175.0,
-    },
-    "combined_cycle": {
-        "summer": 24524.0,
-        "fall": 23308.0,
-        "winter": 25477.0,
-        "spring": 22682.0,
-    },
-    "dual_fuel_oil_gas": {
-        "summer": 7021.0,
-        "fall": 6866.0,
-        "winter": 6710.0,
-        "spring": 6429.0,
-    },
-    "gas": {
-        "summer": 26773.0,
-        "fall": 25302.0,
-        "winter": 24490.0,
-        "spring": 24389.0,
-    },
-    "nuclear": {
-        "summer": 10999.0,
-        "fall": 10656.0,
-        "winter": 10901.0,
-        "spring": 10661.0,
-    },
-    "oil": {"summer": 576.0, "fall": 559.0, "winter": 538.0, "spring": 523.0},
-    "pumped_storage": {
-        "summer": 2386.0,
-        "fall": 1988.0,
-        "winter": 2223.0,
-        "spring": 2282.0,
-    },
-    "reservoir_hydro": {
-        "summer": 474.0,
-        "fall": 395.0,
-        "winter": 368.0,
-        "spring": 411.0,
-    },
-    "run_of_river_hydro": {
-        "summer": 841.0,
-        "fall": 757.0,
-        "winter": 808.0,
-        "spring": 830.0,
-    },
-    "solar": {"summer": 6028.0, "fall": 1864.0, "winter": 509.0, "spring": 1701.0},
-    "storage": {"summer": 447.0, "fall": 26.0, "winter": 30.0, "spring": 87.0},
-    "wind": {"summer": 4687.0, "fall": 8704.0, "winter": 10859.0, "spring": 8021.0},
-}
-
-
-def get_class_ucap(resource_class: str, season: str) -> float:
-    """Get the MISO resource-class UCAP for a given class and season.
-
-    Looks up the system-level Unforced Capacity (UCAP) for the requested
-    resource class and season from :data:`RESOURCE_CLASS_UCAP_MW`.
-
-    Args:
-        resource_class (str): Resource class name. Must be one of the
-            keys of :data:`RESOURCE_CLASS_UCAP_MW` (e.g. ``"biomass"``,
-            ``"coal"``, ``"combined_cycle"``, ``"dual_fuel_oil_gas"``,
-            ``"gas"``, ``"nuclear"``, ``"oil"``, ``"pumped_storage"``,
-            ``"reservoir_hydro"``, ``"run_of_river_hydro"``, ``"solar"``,
-            ``"storage"``, ``"wind"``).
-        season (str): MISO season name. Must be one of ``"summer"``,
-            ``"fall"``, ``"winter"``, ``"spring"``.
-
-    Returns:
-        float: UCAP in MW for the requested ``(resource_class, season)``.
-
-    Raises:
-        KeyError: If ``resource_class`` or ``season`` is not present in
-            :data:`RESOURCE_CLASS_UCAP_MW`.
-    """
-    try:
-        return RESOURCE_CLASS_UCAP_MW[resource_class][season]
-    except KeyError as err:
-        raise KeyError(
-            f"No UCAP available for resource_class={resource_class!r}, "
-            f"season={season!r}. "
-            f"Valid resource classes: {sorted(RESOURCE_CLASS_UCAP_MW)}; "
-            f"valid seasons: ['summer', 'fall', 'winter', 'spring']."
-        ) from err
-
-
-def get_class_isac(resource_class: str, season: str) -> float:
-    """Get the MISO resource-class ISAC for a given class and season.
-
-    Looks up the system-level Installed Seasonal Accredited Capacity
-    (ISAC) for the requested resource class and season from
-    :data:`RESOURCE_CLASS_ISAC_MW`.
-
-    Args:
-        resource_class (str): Resource class name. Must be one of the
-            keys of :data:`RESOURCE_CLASS_ISAC_MW` (e.g. ``"biomass"``,
-            ``"coal"``, ``"combined_cycle"``, ``"dual_fuel_oil_gas"``,
-            ``"gas"``, ``"nuclear"``, ``"oil"``, ``"pumped_storage"``,
-            ``"reservoir_hydro"``, ``"run_of_river_hydro"``, ``"solar"``,
-            ``"storage"``, ``"wind"``).
-        season (str): MISO season name. Must be one of ``"summer"``,
-            ``"fall"``, ``"winter"``, ``"spring"``.
-
-    Returns:
-        float: ISAC in MW for the requested ``(resource_class, season)``.
-
-    Raises:
-        KeyError: If ``resource_class`` or ``season`` is not present in
-            :data:`RESOURCE_CLASS_ISAC_MW`.
-    """
-    try:
-        return RESOURCE_CLASS_ISAC_MW[resource_class][season]
-    except KeyError as err:
-        raise KeyError(
-            f"No ISAC available for resource_class={resource_class!r}, "
-            f"season={season!r}. "
-            f"Valid resource classes: {sorted(RESOURCE_CLASS_ISAC_MW)}; "
-            f"valid seasons: ['summer', 'fall', 'winter', 'spring']."
-        ) from err
-
-
-def get_class_ucap_over_isac(resource_class: str, season: str) -> float:
-    """Get the UCAP/ISAC ratio for a given resource class and season.
-
-    Computes ``get_class_ucap(resource_class, season) /
-    get_class_isac(resource_class, season)``.
-
-    Args:
-        resource_class (str): Resource class name. Must be one of the
-            keys of :data:`RESOURCE_CLASS_UCAP_MW` /
-            :data:`RESOURCE_CLASS_ISAC_MW`.
-        season (str): MISO season name. Must be one of ``"summer"``,
-            ``"fall"``, ``"winter"``, ``"spring"``.
-
-    Returns:
-        float: Dimensionless UCAP/ISAC ratio for the requested
-        ``(resource_class, season)``.
-
-    Raises:
-        KeyError: If ``resource_class`` or ``season`` is not present in
-            either LUT.
-        ZeroDivisionError: If the looked-up ISAC value is zero.
-    """
-    ucap = get_class_ucap(resource_class, season)
-    isac = get_class_isac(resource_class, season)
-    if isac == 0:
-        raise ZeroDivisionError(
-            f"ISAC is zero for resource_class={resource_class!r}, "
-            f"season={season!r}; UCAP/ISAC ratio is undefined."
-        )
-    return ucap / isac
+_SEASONS = ("summer", "fall", "winter", "spring")
+_TIER_2_PAD_TARGET = 65
+_LOW_HOUR_SEASON_THRESHOLD_DAYS = 85
 
 
 def _coerce_to_bool_mask(series: pd.Series, column_name: str) -> pd.Series:
@@ -336,50 +54,6 @@ def _coerce_to_bool_mask(series: pd.Series, column_name: str) -> pd.Series:
         f"Column '{column_name}' must be a bool or 0/1 numeric column, "
         f"got dtype {series.dtype}."
     )
-
-
-# MISO season -> day count.  Seasons follow the meteorological convention
-# used internally by HERCULES: spring = Mar-May, summer = Jun-Aug,
-# fall = Sep-Nov, winter = Dec(year-1) + Jan-Feb(year), so the leap day
-# (Feb 29 of ``year``) lengthens the winter that *ends* in ``year``.
-_DAYS_PER_SEASON_LUT = {
-    "summer": 92,
-    "fall": 91,
-    "winter": 90,
-    "spring": 92,
-}
-
-_DAYS_PER_SEASON_LUT_LEAP_YEAR = {
-    "summer": 92,
-    "fall": 91,
-    "winter": 91,
-    "spring": 92,
-}
-
-
-def get_days_per_season(season: str, year: int) -> int:
-    """Get the number of days in a MISO season for a given year.
-
-    Uses the Gregorian leap-year rule: a year is a leap year iff it is
-    divisible by 4, except century years which must also be divisible by
-    400.  In a leap year ``winter`` (Dec(year-1) + Jan-Feb(year)) gains
-    the extra day; the other seasons are unchanged.
-
-    Args:
-        season (str): MISO season name. Must be one of ``"spring"``,
-            ``"summer"``, ``"fall"``, ``"winter"``.
-        year (int): Calendar year used to decide whether the leap-year
-            day count applies.
-
-    Returns:
-        int: Number of days in ``season`` for ``year``.
-
-    Raises:
-        KeyError: If ``season`` is not one of the four supported values.
-    """
-    if calendar.isleap(year):
-        return _DAYS_PER_SEASON_LUT_LEAP_YEAR[season]
-    return _DAYS_PER_SEASON_LUT[season]
 
 
 def compute_battery_availability(
@@ -501,286 +175,785 @@ def compute_battery_availability(
         return df_return
 
 
-def limit_hourly_availability_contributions(
-    df: pd.DataFrame,
-    availability_columns: list[str],
-    limit: float,
-    priority_order: bool = True,
-) -> pd.DataFrame:
-    """Limit the hourly availability contributions to a maximum of ``limit``.
+class MisoCapacity:
+    def __init__(
+        self,
+        component_list: list[str],
+        class_list: list[str],
+        df: pd.DataFrame,
+        zone: int,
+        interconnect_limit: float,
+        pra_years: int | list[int] | None = None,
+        priority_order: list[str] | dict[str, list[str]] | None = None,
+        remove_low_hour_seasons: bool = True,
+        verbose: bool = False,
+    ):
+        """Initialize a MisoCapacity analysis for the given components.
 
-    For each column in ``availability_columns``, reduce the total power so
-    that the average of the per-row sum over each clock hour (in UTC) is at
-    most ``limit``.  Time steps within an hour may be much shorter than one
-    hour; the cap is applied to the hourly average of the total, not to any
-    single sample.  Within an hour, each affected column is scaled
-    multiplicatively so the relative shape of its sub-hourly profile is
-    preserved.
+        Args:
+            component_list (list[str]): Column names in ``df`` representing
+                each generation component (e.g. battery, wind).
+            class_list (list[str]): MISO resource class for each component
+                (same order as ``component_list``).  Must appear in the
+                bundled UCAP/ISAC CSVs.
+            df (pd.DataFrame): Simulation output containing ``time_utc``
+                (timezone-aware UTC) and one column per component.  Sub-hourly
+                data are averaged to hourly resolution internally.
+            zone (int): MISO zone number used to look up the subregion and
+                PRA clearing prices.
+            interconnect_limit (float): Maximum total MW that can flow from
+                all components combined in any single hour.
+            pra_years (int | list[int] | None): PRA auction year(s) used for
+                clearing prices.  Accepts a single int, a list of ints (prices
+                are averaged), or ``None`` / empty list (defaults to the most
+                recent year in the bundled CSV).
+            priority_order (list[str] | dict[str, list[str]] | None):
+                Determines how interconnect headroom is allocated when the
+                sum of component outputs exceeds ``interconnect_limit``.
+                ``None`` applies pro-rata scaling; a list applies the same
+                priority every season; a dict keyed by season applies
+                per-season priorities.
+            remove_low_hour_seasons (bool): When ``True`` (default), any
+                ``(year, season)`` pair with fewer than
+                ``_LOW_HOUR_SEASON_THRESHOLD_DAYS * 24`` hours is excluded
+                from the availability metrics.  Set to ``False`` in unit
+                tests that use short windows.
+            verbose (bool): When ``True``, log diagnostic messages (e.g.
+                which (year, season) pairs were dropped).
+        """
+        # Save the verbose flag
+        self.verbose = verbose
 
-    Under the default ``priority_order`` behavior, the reduction is drawn
-    first from the last column in ``availability_columns``, then the second
-    to last, and so on.  Each column can contribute at most its own
-    non-negative hourly mean to the reduction (so scaled values stay in
-    ``[0, original]``); any remaining excess cascades to the next column.
-    When ``priority_order`` is False, the reduction is done pro-rata: every
-    column in the hour is multiplied by the same ``limit / hourly_mean``
-    factor.
+        # Save the interconnect limit
+        self.interconnect_limit = interconnect_limit
 
-    Args:
-        df (pd.DataFrame): DataFrame containing at minimum the columns
-            ``time_utc`` (timezone-aware UTC datetime) and every entry of
-            ``availability_columns`` (numeric).
-        availability_columns (list[str]): List of column names to limit.
-        limit (float): Maximum allowed hourly average of the row-wise sum
-            over ``availability_columns``.
-        priority_order (bool, optional): If True, reduce the contributions
-            in reverse list order (last column first).  If False, scale
-            every column by the same factor.  Defaults to True.
+        # When True (default), any (year, season) pair in
+        # ``df_h_limit`` with fewer than
+        # ``_LOW_HOUR_SEASON_THRESHOLD_DAYS * 24`` classified hours is
+        # dropped before the per-component availability metrics are
+        # computed.  Set to False for unit tests on small windows.
+        self.remove_low_hour_seasons = remove_low_hour_seasons
 
-    Returns:
-        pd.DataFrame: A copy of ``df`` with the same shape and column
-        names, where the values in ``availability_columns`` have been
-        scaled so that the hourly average of their row-wise sum is at most
-        ``limit``.
+        # Check that component_list and class_list are lists of strings
+        if not isinstance(component_list, list) or not all(
+            isinstance(c, str) for c in component_list
+        ):
+            raise ValueError("component_list must be a list of strings.")
+        if not isinstance(class_list, list) or not all(
+            isinstance(c, str) for c in class_list
+        ):
+            raise ValueError("class_list must be a list of strings.")
 
-    Raises:
-        ValueError: If ``time_utc`` or any entry of ``availability_columns``
-            is missing from ``df``, or if ``time_utc`` is not
-            timezone-aware.
-        TypeError: If ``time_utc`` is not a datetime dtype.
-    """
-    if "time_utc" not in df.columns:
-        raise ValueError("DataFrame must contain a 'time_utc' column.")
-    for column in availability_columns:
-        if column not in df.columns:
-            raise ValueError(f"DataFrame must contain a '{column}' column.")
+        # Check that the component_list and class_list are the same length
+        if len(component_list) != len(class_list):
+            raise ValueError("component_list and class_list must be the same length.")
 
-    time_utc = df["time_utc"]
-    if not pd.api.types.is_datetime64_any_dtype(time_utc):
-        raise TypeError(
-            "Column 'time_utc' must be a datetime dtype (e.g. produced by "
-            "pd.to_datetime(..., utc=True))."
-        )
-    if getattr(time_utc.dt, "tz", None) is None:
-        raise ValueError(
-            "Column 'time_utc' must be timezone-aware UTC (e.g. produced by "
-            "pd.to_datetime(..., utc=True))."
-        )
+        # Get a list of available classes
+        self.available_classes = self._get_available_classes()
 
-    df_limited = df.copy()
-
-    # Group every row by its hour-beginning UTC bucket so that
-    # ``transform("mean")`` broadcasts each hour's mean back to all of its
-    # constituent (potentially sub-hourly) rows.
-    hour = time_utc.dt.floor("h")
-    hourly_mean_total = (
-        df[list(availability_columns)].sum(axis=1).groupby(hour).transform("mean")
-    )
-
-    if priority_order:
-        # Per-row excess of the hourly mean over the limit (constant within
-        # each hour).  This is the budget of mean-power we still need to
-        # remove from the remaining columns.
-        remaining_excess = (hourly_mean_total - limit).clip(lower=0.0)
-
-        for col in reversed(availability_columns):
-            hourly_mean_col = df[col].groupby(hour).transform("mean")
-            # A column can absorb at most its own non-negative hourly mean
-            # without flipping sign.
-            available = hourly_mean_col.clip(lower=0.0)
-            reduction = np.minimum(remaining_excess, available)
-
-            # scale = 1 - reduction / mean, with the convention that hours
-            # whose mean for this column is zero are left untouched.
-            ratio = reduction.div(hourly_mean_col.where(hourly_mean_col > 0)).fillna(
-                0.0
+        # Check that the class_list is a subset of the available_classes
+        if not all(c in self.available_classes for c in class_list):
+            raise ValueError(
+                f"One or more classes in {class_list} not found in available classes: {self.available_classes}"
             )
-            scale = 1.0 - ratio
-            df_limited[col] = df[col] * scale
-            remaining_excess = remaining_excess - reduction
-    else:
-        # Pro-rata: scale every column by the same hour-specific factor so
-        # that the new hourly mean equals ``limit`` (or stays unchanged when
-        # already below the limit).
-        scale = (limit / hourly_mean_total.where(hourly_mean_total > limit)).fillna(1.0)
-        for col in availability_columns:
-            df_limited[col] = df[col] * scale
 
-    return df_limited
+        # Save the component_list and class_list
+        self.component_list = component_list
+        self.class_list = class_list
+        self.n_components = len(component_list)
 
+        # Check that the dataframe contains at least two columns and a time_utc column
+        if len(df.columns) < 2:
+            raise ValueError("DataFrame must contain at least two columns.")
+        if "time_utc" not in df.columns:
+            raise ValueError("DataFrame must contain a 'time_utc' column.")
+        # Check that the time_utc is UTC.  ``dt.tz`` is a ``tzinfo``
+        # object (e.g. ``datetime.timezone.utc``), not the string
+        # ``"UTC"``, so compare via its string representation.
+        if df["time_utc"].dt.tz is None or str(df["time_utc"].dt.tz) != "UTC":
+            raise ValueError("Time_utc column must be in UTC timezone.")
+        # Check that the dataframe has at least two rows
+        if len(df) < 2:
+            raise ValueError("DataFrame must contain at least two rows.")
 
-def compute_isac_dict(
-    df: pd.DataFrame,
-    availability_column: str,
-    north_south: str,
-    verbose: bool = False,
-) -> dict[str, dict[str, float]]:
-    """Compute MISO ISAC tier statistics for each season.
+        # Check the there is a column for each component in the component_list
+        for component in component_list:
+            if component not in df.columns:
+                raise ValueError(f"DataFrame must contain a '{component}' column.")
 
-    The input ``df`` is first floor-aggregated to hour-beginning UTC by
-    averaging ``availability_column`` within each clock hour, and the
-    result is inner-joined to the bundled MISO RA-hour reference table
-    on ``time_utc``.  Hours with no entry in the reference table are
-    dropped, as are years with fewer than ``24 * 275`` classified hours
-    (a "near-full-year" filter).
+        # Save the zone
+        self.zone = zone
 
-    MISO publishes two independent reliability flags per hour: a
-    seasonal RA-hour flag (``ra_<region>``) and an annual RA-hour /
-    AAOC flag (``aaoc_<region>``).  For each season the following
-    statistics over ``availability_column`` are reported, pooled across
-    every kept year:
+        # Get the subregion from the zone
+        self.subregion = self._get_subregion()
 
-    - ``tier_1``: mean over hours that are NOT seasonal RA hours.
-    - ``tier_2``: mean over seasonal RA hours, pooled across years.  For
-      any year with fewer than 65 seasonal RA hours, that year's
-      contribution is right-padded up to 65 entries using that year's
-      AAOC mean before being concatenated.
-    - ``ISAC``: weighted score ``0.2 * tier_1 + 0.8 * tier_2``.
-    - ``aaoc``: mean over every AAOC hour in the kept years
-      (season-independent; identical across seasons).
-    - ``all``: mean over every classified hour in the season (across
-      kept years).
+        # Process the dataframe (uses self.subregion to pick RA / AAOC cols)
+        self.df_h = self._process_to_hourly(df)
 
-    Args:
-        df (pd.DataFrame): DataFrame containing at minimum the columns
-            ``time_utc`` (timezone-aware UTC datetime) and
-            ``availability_column`` (numeric).
-        availability_column (str): Name of the numeric column to average
-            within each tier.
-        north_south (str): MISO sub-region selector. Must be either
-            ``"north"`` (Central + North) or ``"south"``.
-        verbose (bool, optional): If True, print a status message for
-            each ``(season, year)`` combination as it is processed.
-            Defaults to False.
+        # Process the priority order
 
-    Returns:
-        dict[str, dict[str, float]]: Nested mapping from season name to
-        a sub-dict with keys ``"tier_1"``, ``"tier_2"``, ``"ISAC"``,
-        ``"aaoc"``, and ``"all"``, each holding the statistics described
-        above.
+        # Check the priority is either None, a list of strings, or a dict of lists of strings
+        if (
+            priority_order is not None
+            and not isinstance(priority_order, list)
+            and not isinstance(priority_order, dict)
+        ):
+            raise ValueError(
+                f"Priority order must be None, a list of strings, or a dict of lists of strings: {type(priority_order)}"
+            )
 
-    Raises:
-        ValueError: If required columns are missing or ``north_south``
-            is invalid, or if the ``ra_<region>`` / ``aaoc_<region>``
-            reference columns contain non-{0, 1} values.
-        TypeError: If the ``ra_<region>`` / ``aaoc_<region>`` reference
-            columns are neither bool nor numeric.
-        KeyError: If a season/year combination needs AAOC padding but
-            that year has no AAOC hours available.
-    """
-    if "time_utc" not in df.columns:
-        raise ValueError("DataFrame must contain a 'time_utc' column.")
-    if availability_column not in df.columns:
-        raise ValueError(f"DataFrame must contain a '{availability_column}' column.")
-    if north_south not in _VALID_NORTH_SOUTH:
-        raise ValueError(
-            f"north_south must be one of {sorted(_VALID_NORTH_SOUTH)}, "
-            f"got {north_south!r}."
-        )
-
-    # Compute the hourly averages
-    df_hourly = (
-        df.groupby(df["time_utc"].dt.floor("h"))[availability_column]
-        .mean()
-        .reset_index()
-    )
-
-    # Load the RA-hour reference table
-    df_ra = pd.read_feather(RA_HOURS_FEATHER_PATH)
-
-    # Determine the RA and AAOC columns
-    ra_column = f"ra_{north_south}"
-    aaoc_column = f"aaoc_{north_south}"
-
-    df_merge = pd.merge(df_hourly, df_ra, on="time_utc", how="inner")
-
-    # Coerce flag columns to clean booleans so callers can supply either
-    # bool or 0/1 numeric reference tables without surprises.
-    df_merge[ra_column] = _coerce_to_bool_mask(df_merge[ra_column], ra_column)
-    df_merge[aaoc_column] = _coerce_to_bool_mask(df_merge[aaoc_column], aaoc_column)
-
-    df_merge["year"] = df_merge["time_utc"].dt.year
-
-    # Per-year AAOC means, used both for tier_2 padding and for the
-    # season-independent "aaoc" output entry.
-    aaoc_means = (
-        df_merge[df_merge[aaoc_column]]
-        .groupby("year")[availability_column]
-        .mean()
-        .to_dict()
-    )
-
-    seasons = df_merge["season"].unique()
-    years = [
-        year
-        for year in df_merge["year"].unique()
-        if len(df_merge[df_merge["year"] == year]) > 24 * 275
-    ]
-
-    # Season-independent AAOC mean: average over every AAOC hour in the
-    # kept years.  Identical across seasons, but emitted per season for
-    # convenience.
-    aaoc_mask_kept = df_merge[aaoc_column] & df_merge["year"].isin(years)
-    aaoc_overall_mean = float(df_merge.loc[aaoc_mask_kept, availability_column].mean())
-
-    result_dict: dict[str, dict[str, float]] = {}
-
-    for season in seasons:
-        df_season = df_merge[df_merge["season"] == season]
-        tier_1_values = np.array([])
-        tier_2_values = np.array([])
-
-        for year in years:
-            df_subset = df_season[df_season["year"] == year]
-
-            tier_2_year = df_subset.loc[
-                df_subset[ra_column], availability_column
-            ].values
-            if len(tier_2_year) < 65:
-                tier_2_year = np.pad(
-                    tier_2_year,
-                    (0, 65 - len(tier_2_year)),
-                    mode="constant",
-                    constant_values=aaoc_means[year],
+        # If None can save directly to self.priority_order
+        if priority_order is None:
+            self.priority_order = priority_order
+        # Else if, priority_order is a list of strings, confirm same length as component_list
+        # and elements overlap with component_list.  Then save each list as the value of
+        # a dictionary whose keys are the four seasons.
+        if isinstance(priority_order, list):
+            if len(priority_order) != len(component_list):
+                raise ValueError(
+                    f"Priority order list must be the same length as component_list: {len(component_list)}"
                 )
-
-            tier_1_year = df_subset.loc[
-                ~df_subset[ra_column], availability_column
-            ].values
-
-            tier_1_values = np.concatenate([tier_1_values, tier_1_year])
-            tier_2_values = np.concatenate([tier_2_values, tier_2_year])
-
-            if verbose:
-                print(
-                    f"[compute_isac_dict] season={season} year={year}: "
-                    f"tier_1_n={len(tier_1_year)} tier_2_n={len(tier_2_year)}"
+            if not all(component in component_list for component in priority_order):
+                raise ValueError(
+                    f"One or more components in {priority_order} not found in component_list: {component_list}"
                 )
+            self.priority_order = dict.fromkeys(_SEASONS, priority_order)
+        # Else if, priority_order is a dict first confirm the keys are the four seasons
+        # and then confirm the values are lists of strings that overlap with component_list.
+        elif isinstance(priority_order, dict):
+            if not all(season in _SEASONS for season in priority_order.keys()):
+                raise ValueError(
+                    f"One or more seasons in {priority_order.keys()} not found in _SEASONS: {_SEASONS}"
+                )
+            if not all(
+                all(component in component_list for component in components)
+                for components in priority_order.values()
+            ):
+                raise ValueError(
+                    f"One or more components in {priority_order.values()} not found in component_list: {component_list}"
+                )
+            self.priority_order = priority_order
 
-        tier_1_mean = (
-            float(np.mean(tier_1_values)) if tier_1_values.size else float("nan")
+        # Limit the component availability contributions to the interconnect limit according to the priority order
+        self.df_h_limit = self._limit_hourly_availability_contributions()
+
+        # Compute per-component availability metrics off the limit-capped
+        # hourly frame.  Order matters:
+        #   1. Capture per-(year, season) hour counts from the original
+        #      ``df_h_limit`` (so the diagnostic survives any later drops).
+        #   2. Optionally drop sparsely-covered (year, season) pairs.
+        #   3. Compute per-year, per-component AAOC means used for the
+        #      tier-2 padding step.
+        #   4. Compute the tier-1 / tier-2 / all-hours / ISAC dicts.
+        self.hours_per_year_season = self._compute_hour_counts()
+        self.df_h_limit = self._drop_low_hour_seasons()
+        self.aaoc_per_year = self._compute_aaoc_per_year()
+        (
+            self.tier_1_availability,
+            self.tier_2_availability,
+            self.all_hours_availability,
+            self.isac,
+        ) = self._compute_tier_availabilities()
+
+        # Load the class-level UCAP and ISAC
+        self.class_ucap = self._load_class_ucap()
+        self.class_isac = self._load_class_isac()
+
+        # Compute class-level UCAP / ISAC conversion factor
+        self.class_ucap_isac_conversion = self._compute_class_ucap_isac_conversion()
+
+        # Compute component-level Seasonal Accredited Capacity (SAC)
+        self.sac = self._compute_sac()
+
+        # For now, assume zrc (Zonal Resource Credits) simply equals sac
+        self.zrc = self.sac
+
+        # Get a list of available pra price years
+        self.available_pra_years = self._get_available_pra_years()
+
+        # If pra_years is None or an empty list, use most recent value in self.available_pra_years
+        if pra_years is None or not pra_years:
+            self.pra_years = [self.available_pra_years[-1]]
+        # Else if, pra_years is an int, confirm in self.available_pra_years and save it as a list
+        elif isinstance(pra_years, int):
+            if pra_years not in self.available_pra_years:
+                raise ValueError(
+                    f"PRA year {pra_years} not found in available years: {self.available_pra_years}"
+                )
+            self.pra_years = [pra_years]
+        # Else if, pra_years is a list of ints, confirm all are in self.available_pra_years and save it as a list
+        elif isinstance(pra_years, list):
+            if not all(year in self.available_pra_years for year in pra_years):
+                raise ValueError(
+                    f"One or more PRA years in {pra_years} not found in available years: {self.available_pra_years}"
+                )
+            self.pra_years = pra_years
+
+        if len(self.pra_years) > 1:
+            print(f"Using average PRA prices for multiple years: {self.pra_years}")
+        else:
+            print(f"Using PRA prices for year: {self.pra_years[0]}")
+
+        # Save the PRA prices per season
+        self.pra_prices = self._get_pra_prices()
+
+        # Save the days per season
+        self.days_per_season = self._get_days_per_season()
+
+        # Compute the revenue per season
+        self.revenue_per_season = self._compute_revenue_per_season()
+
+    def _get_subregion(self) -> str:
+        """Get the MISO subregion name for :attr:`zone`.
+
+        Reads :data:`ZONE_SUBREGION_CSV_PATH` and returns the subregion
+        string (e.g. ``"central_north"`` or ``"south"``) associated with
+        :attr:`zone`.
+
+        Returns:
+            str: Subregion name for :attr:`zone`.
+
+        Raises:
+            ValueError: If :attr:`zone` is not present in the source CSV.
+        """
+        zone_subregion_df = pd.read_csv(ZONE_SUBREGION_CSV_PATH, skipinitialspace=True)
+        zone_subregion_df.columns = zone_subregion_df.columns.str.strip()
+
+        df_zone = zone_subregion_df[zone_subregion_df["zone"] == self.zone]
+        if df_zone.empty:
+            available_zones = sorted(zone_subregion_df["zone"].astype(int).unique())
+            raise ValueError(
+                f"Zone {self.zone} not found in zone-subregion CSV "
+                f"{ZONE_SUBREGION_CSV_PATH}. Available zones: {available_zones}."
+            )
+
+        return str(df_zone["subregion"].iloc[0]).strip()
+
+    def _process_to_hourly(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Aggregate the input DataFrame to hourly and merge MISO RA-hour flags.
+
+        Floors ``time_utc`` to the hour and averages every component column
+        listed in :attr:`component_list` within each hour.  The hourly frame
+        is then inner-joined to the bundled MISO RA-hour reference table on
+        ``time_utc``.  The RA and AAOC flag columns selected by
+        :attr:`subregion` (i.e. ``ra_<subregion>`` and ``aaoc_<subregion>``)
+        are coerced to clean booleans, and a ``year`` column derived from
+        ``time_utc`` is appended for downstream use.
+
+        Args:
+            df (pd.DataFrame): DataFrame containing at minimum a
+                timezone-aware ``time_utc`` column and one column per entry
+                of :attr:`component_list`.
+
+        Returns:
+            pd.DataFrame: Hourly DataFrame with ``time_utc``, every column
+            in :attr:`component_list`, the ``season``, ``ra_<subregion>``,
+            and ``aaoc_<subregion>`` columns from the reference table, and
+            a ``year`` column.
+        """
+        df_hourly = (
+            df.groupby(df["time_utc"].dt.floor("h"))[self.component_list]
+            .mean()
+            .reset_index()
         )
-        tier_2_mean = (
-            float(np.mean(tier_2_values)) if tier_2_values.size else float("nan")
+
+        df_ra = pd.read_csv(RA_HOURS_CSV_PATH)
+        df_ra["time_utc"] = pd.to_datetime(df_ra["time_utc"], utc=True)
+
+        ra_column = f"ra_{self.subregion}"
+        aaoc_column = f"aaoc_{self.subregion}"
+
+        df_merge = pd.merge(df_hourly, df_ra, on="time_utc", how="inner")
+
+        # Coerce flag columns to clean booleans so callers can supply either
+        # bool or 0/1 numeric reference tables without surprises.
+        df_merge[ra_column] = _coerce_to_bool_mask(df_merge[ra_column], ra_column)
+        df_merge[aaoc_column] = _coerce_to_bool_mask(df_merge[aaoc_column], aaoc_column)
+
+        df_merge["year"] = df_merge["time_utc"].dt.year
+
+        return df_merge
+
+    def _get_available_pra_years(self) -> list[int]:
+        """Get available PRA price years from the bundled PRA CSV.
+
+        Reads :data:`PRA_PRICES_CSV_PATH` and returns sorted unique values
+        from the ``year`` column.
+
+        Returns:
+            list[int]: Sorted list of available PRA years.
+        """
+        pra_prices_df = pd.read_csv(PRA_PRICES_CSV_PATH)
+        return sorted(pra_prices_df["year"].dropna().astype(int).unique().tolist())
+
+    def _get_available_classes(self) -> list[str]:
+        """Get available resource classes from the bundled UCAP CSV.
+
+        Reads :data:`RESOURCE_CLASS_UCAP_CSV_PATH` and returns sorted
+        unique values from the ``resource_class`` column.
+
+        Returns:
+            list[str]: Sorted list of available resource class names.
+        """
+        ucap_df = pd.read_csv(RESOURCE_CLASS_UCAP_CSV_PATH)
+        return sorted(
+            ucap_df["resource_class"].dropna().astype(str).str.strip().unique().tolist()
         )
-        isac_value = 0.2 * tier_1_mean + 0.8 * tier_2_mean
 
-        # Per-season "all" mean: every classified hour in this season,
-        # across kept years (matches the docstring's wording).
-        season_mask = df_season["year"].isin(years)
-        all_mean = float(df_season.loc[season_mask, availability_column].mean())
+    def _get_pra_prices(self) -> dict[str, float]:
+        """Get the PRA clearing prices per season for :attr:`zone`.
 
-        result_dict[season] = {
-            "tier_1": tier_1_mean,
-            "tier_2": tier_2_mean,
-            "ISAC": isac_value,
-            "aaoc": aaoc_overall_mean,
-            "all": all_mean,
+        Reads :data:`PRA_PRICES_CSV_PATH`, filters to :attr:`zone` and
+        :attr:`pra_years`, and returns a dict keyed by season with values
+        in $/MW-day.  When :attr:`pra_years` contains more than one
+        year, the prices are averaged across years (per season).
+
+        Returns:
+            dict[str, float]: Mapping from season name (``"summer"``,
+            ``"fall"``, ``"winter"``, ``"spring"``) to PRA clearing price
+            in $/MW-day.
+
+        Raises:
+            ValueError: If :attr:`zone` is missing from the source CSV
+                or if any year in :attr:`pra_years` has no row for
+                :attr:`zone`.
+        """
+        pra_prices_df = pd.read_csv(PRA_PRICES_CSV_PATH)
+
+        df_zone = pra_prices_df[pra_prices_df["zone"] == self.zone]
+        if df_zone.empty:
+            raise ValueError(
+                f"Zone {self.zone} not found in PRA prices CSV {PRA_PRICES_CSV_PATH}."
+            )
+
+        df_filtered = df_zone[df_zone["year"].isin(self.pra_years)]
+        missing_years = sorted(set(self.pra_years) - set(df_filtered["year"].tolist()))
+        if missing_years:
+            raise ValueError(
+                f"PRA years {missing_years} not found for zone {self.zone} in "
+                f"PRA prices CSV {PRA_PRICES_CSV_PATH}."
+            )
+
+        season_means = df_filtered[list(_SEASONS)].mean(axis=0)
+        return {season: float(season_means[season]) for season in _SEASONS}
+
+    def _get_days_per_season(self, year: int) -> dict[str, int]:
+        """Get the seasonal day counts for a calendar year.
+
+        Reads the appropriate days-per-season CSV (leap or non-leap) and
+        returns a dictionary keyed by season with integer day counts.
+
+        Args:
+            year (int): Calendar year used to decide whether the leap-year
+                day-count table applies.
+
+        Returns:
+            dict[str, int]: Mapping from season name (``"summer"``,
+            ``"fall"``, ``"winter"``, ``"spring"``) to number of days in
+            that season for ``year``.
+
+        Raises:
+            KeyError: If any expected season key is missing from the source
+                table.
+        """
+        path = (
+            DAYS_PER_SEASON_LEAP_YEAR_CSV_PATH
+            if calendar.isleap(year)
+            else DAYS_PER_SEASON_CSV_PATH
+        )
+        days_by_season = pd.read_csv(path).set_index("season")["days"]
+        try:
+            return {season: int(days_by_season.loc[season]) for season in _SEASONS}
+        except KeyError as err:
+            raise KeyError(
+                f"Missing season day count in source table. "
+                f"Expected seasons: {list(_SEASONS)}; "
+                f"available seasons: {sorted(days_by_season.index)}."
+            ) from err
+
+    def _limit_hourly_availability_contributions(self) -> pd.DataFrame:
+        """Cap the row-wise sum of component contributions at the interconnect limit.
+
+        Operates on :attr:`df_h`, which is already hourly (one row per
+        clock hour), so each row's value is itself the hourly mean and no
+        sub-hourly aggregation is needed.  For every hour whose row-sum
+        over :attr:`component_list` exceeds :attr:`interconnect_limit`,
+        the contributions are reduced as follows:
+
+        - When :attr:`priority_order` is ``None``, the reduction is
+          *pro-rata*: every component in that hour is multiplied by the
+          same factor ``interconnect_limit / row_sum`` so that the new
+          row-sum equals :attr:`interconnect_limit`.
+        - Otherwise :attr:`priority_order` is a dict keyed by season,
+          whose values list :attr:`component_list` entries from highest
+          priority (kept) to lowest priority (cut first).  For each row,
+          the season's order is walked in reverse: the lowest-priority
+          column absorbs as much of the excess as it can without going
+          negative, and any remaining excess cascades to the
+          next-lowest, and so on.
+
+        Returns:
+            pd.DataFrame: A copy of :attr:`df_h` with the values in
+            :attr:`component_list` reduced so that the per-hour row-sum
+            is at most :attr:`interconnect_limit`.  All other columns
+            (``season``, ``ra_<subregion>``, ``aaoc_<subregion>``,
+            ``year``, ...) are passed through unchanged.
+        """
+        df_h_limit = self.df_h.copy()
+        components = self.component_list
+        limit = self.interconnect_limit
+
+        row_sum = df_h_limit[components].sum(axis=1)
+
+        if self.priority_order is None:
+            # Pro-rata: scale every component column by the same
+            # row-specific factor in over-limit hours; leave others alone.
+            scale = (limit / row_sum.where(row_sum > limit)).fillna(1.0)
+            for col in components:
+                df_h_limit[col] = df_h_limit[col] * scale
+            return df_h_limit
+
+        # Priority order: per-season list ordered from highest priority
+        # (kept) to lowest priority (cut first).  Walk in reverse so the
+        # lowest-priority column absorbs as much excess as it can before
+        # cascading to the next-lowest.
+        excess = (row_sum - limit).clip(lower=0.0)
+        for season, order in self.priority_order.items():
+            season_mask = df_h_limit["season"] == season
+            if not season_mask.any():
+                continue
+
+            remaining = excess[season_mask]
+            for col in reversed(order):
+                # A column can absorb at most its own non-negative value
+                # without flipping sign.
+                available = df_h_limit.loc[season_mask, col].clip(lower=0.0)
+                reduction = np.minimum(remaining, available)
+                df_h_limit.loc[season_mask, col] = (
+                    df_h_limit.loc[season_mask, col] - reduction
+                )
+                remaining = remaining - reduction
+
+        return df_h_limit
+
+    def _compute_aaoc_per_year(self) -> dict[tuple[int, str], float]:
+        """Compute per-year, per-component mean availability over AAOC hours.
+
+        Operates on :attr:`df_h_limit`.  Years with no AAOC hours in
+        :attr:`df_h_limit` are simply absent from the returned dict;
+        subsequent tier-2 padding falls back to ``NaN`` for those years
+        rather than raising.
+
+        Returns:
+            dict[tuple[int, str], float]: Mapping from
+            ``(year, component)`` to the mean of ``component`` over
+            AAOC hours in that ``year``.
+        """
+        aaoc_column = f"aaoc_{self.subregion}"
+        df_aaoc = self.df_h_limit[self.df_h_limit[aaoc_column]]
+        if df_aaoc.empty:
+            return {}
+
+        per_year = df_aaoc.groupby("year")[self.component_list].mean()
+        return {
+            (int(year), component): float(per_year.loc[year, component])
+            for year in per_year.index
+            for component in self.component_list
         }
 
-    return result_dict
+    def _compute_hour_counts(self) -> dict[tuple[int, str], int]:
+        """Compute the per-(year, season) hour-count diagnostic.
 
+        Counts the classified hours present in :attr:`df_h_limit` for
+        each ``(year, season)`` pair.  Should be called *before*
+        :meth:`_drop_low_hour_seasons` so the dict reflects the
+        original coverage of the input simulation, not the post-filter
+        coverage.
 
-if __name__ == "__main__":
-    ra_hours = pd.read_feather(RA_HOURS_FEATHER_PATH)
-    print(ra_hours.head())
+        Returns:
+            dict[tuple[int, str], int]: Mapping from ``(year, season)``
+            to the count of classified hours in :attr:`df_h_limit`.
+        """
+        per_year_season = self.df_h_limit.groupby(["year", "season"]).size()
+        return {
+            (int(year), str(season)): int(count)
+            for (year, season), count in per_year_season.items()
+        }
+
+    def _drop_low_hour_seasons(self) -> pd.DataFrame:
+        """Drop sparsely-covered ``(year, season)`` pairs from :attr:`df_h_limit`.
+
+        When :attr:`remove_low_hour_seasons` is True, any
+        ``(year, season)`` pair whose entry in
+        :attr:`hours_per_year_season` is below
+        ``_LOW_HOUR_SEASON_THRESHOLD_DAYS * 24`` is dropped from the
+        returned frame so it cannot contaminate the per-component
+        availability statistics with partial-season noise.
+        :attr:`hours_per_year_season` itself is left untouched as a
+        diagnostic of the *original* coverage; callers can compare it
+        against the returned frame to see what was dropped.
+
+        When :attr:`remove_low_hour_seasons` is False, the input
+        :attr:`df_h_limit` is returned unchanged.
+
+        Returns:
+            pd.DataFrame: The filtered (or unchanged)
+            :attr:`df_h_limit`.
+        """
+        if not self.remove_low_hour_seasons:
+            return self.df_h_limit
+
+        threshold_hours = _LOW_HOUR_SEASON_THRESHOLD_DAYS * 24
+        df = self.df_h_limit
+        group_sizes = df.groupby(["year", "season"])["year"].transform("size")
+        keep_mask = group_sizes >= threshold_hours
+        if keep_mask.all():
+            return df
+
+        if self.verbose:
+            dropped = sorted(
+                key
+                for key, count in self.hours_per_year_season.items()
+                if count < threshold_hours
+            )
+            print(
+                f"[MisoCapacity] dropping {len(dropped)} (year, season) "
+                f"pair(s) with < {threshold_hours} hours: {dropped}"
+            )
+        return df.loc[keep_mask].reset_index(drop=True)
+
+    def _compute_tier_availabilities(
+        self,
+    ) -> tuple[
+        dict[tuple[str, str], float],
+        dict[tuple[str, str], float],
+        dict[tuple[str, str], float],
+        dict[tuple[str, str], float],
+    ]:
+        """Compute per-(season, component) tier 1/2, all-hours, and ISAC means.
+
+        Operates on :attr:`df_h_limit` and assumes :attr:`aaoc_per_year`
+        has already been populated by :meth:`_compute_aaoc_per_year`.
+
+        For each ``(season, component)`` pair, four values are produced:
+
+        - ``tier_1_availability``: mean of ``component`` over hours
+          that are NOT seasonal RA hours, pooled across every year
+          present in :attr:`df_h_limit`.
+        - ``tier_2_availability``: mean of ``component`` over seasonal
+          RA hours, pooled across years.  For any ``(year, season)``
+          combination with fewer than 65 RA hours, that year's
+          contribution is right-padded up to 65 entries using
+          ``self.aaoc_per_year[(year, component)]`` before being
+          concatenated.  ``(year, season)`` combinations with zero
+          classified hours in :attr:`df_h_limit` are skipped entirely
+          (no synthetic AAOC padding).
+        - ``all_hours_availability``: mean of ``component`` over every
+          classified hour in the season.
+        - ``isac``: ``0.2 * tier_1 + 0.8 * tier_2``.
+
+        When a ``(year, season)`` combination has fewer than 65 RA
+        hours and the same ``year`` has no AAOC entry in
+        :attr:`aaoc_per_year`, padding falls back to ``NaN``; the
+        resulting tier-2 mean (and therefore ISAC) for any
+        ``(season, component)`` whose data depends on that year
+        propagates as ``NaN``, making partial-year coverage visible to
+        the caller via the output dicts.
+
+        Returns:
+            tuple[dict, dict, dict, dict]: A 4-tuple
+            ``(tier_1_availability, tier_2_availability,
+            all_hours_availability, isac)`` of dicts keyed by
+            ``(season, component)``.
+        """
+        ra_column = f"ra_{self.subregion}"
+        df = self.df_h_limit
+        seasons = df["season"].unique()
+        years = sorted(int(y) for y in df["year"].unique())
+
+        tier_1_availability: dict[tuple[str, str], float] = {}
+        tier_2_availability: dict[tuple[str, str], float] = {}
+        all_hours_availability: dict[tuple[str, str], float] = {}
+        isac: dict[tuple[str, str], float] = {}
+
+        for season in seasons:
+            df_season = df[df["season"] == season]
+            for component in self.component_list:
+                tier_1_values: list[np.ndarray] = []
+                tier_2_values: list[np.ndarray] = []
+
+                for year in years:
+                    df_year_season = df_season[df_season["year"] == year]
+                    if df_year_season.empty:
+                        # Skip (year, season) pairs with no classified
+                        # hours so partial years don't inject synthetic
+                        # AAOC-padded entries into tier 2.
+                        continue
+
+                    tier_1_values.append(
+                        df_year_season.loc[
+                            ~df_year_season[ra_column], component
+                        ].to_numpy()
+                    )
+                    tier_2_year = df_year_season.loc[
+                        df_year_season[ra_column], component
+                    ].to_numpy()
+                    if len(tier_2_year) < _TIER_2_PAD_TARGET:
+                        pad_value = self.aaoc_per_year.get(
+                            (year, component), float("nan")
+                        )
+                        tier_2_year = np.pad(
+                            tier_2_year,
+                            (0, _TIER_2_PAD_TARGET - len(tier_2_year)),
+                            mode="constant",
+                            constant_values=pad_value,
+                        )
+                    tier_2_values.append(tier_2_year)
+
+                tier_1_arr = (
+                    np.concatenate(tier_1_values) if tier_1_values else np.array([])
+                )
+                tier_2_arr = (
+                    np.concatenate(tier_2_values) if tier_2_values else np.array([])
+                )
+
+                tier_1_mean = (
+                    float(np.mean(tier_1_arr)) if tier_1_arr.size else float("nan")
+                )
+                tier_2_mean = (
+                    float(np.mean(tier_2_arr)) if tier_2_arr.size else float("nan")
+                )
+                all_mean = float(df_season[component].mean())
+
+                key = (str(season), component)
+                tier_1_availability[key] = tier_1_mean
+                tier_2_availability[key] = tier_2_mean
+                all_hours_availability[key] = all_mean
+                isac[key] = 0.2 * tier_1_mean + 0.8 * tier_2_mean
+
+        return tier_1_availability, tier_2_availability, all_hours_availability, isac
+
+    def _load_class_ucap(self) -> dict[tuple[str, str], float]:
+        """Load class-level UCAP MW per ``(season, component)``.
+
+        Reads :data:`RESOURCE_CLASS_UCAP_CSV_PATH` and returns a dict
+        keyed by ``(season, component)`` with values in MW.  Each
+        component is assigned the UCAP MW of its associated resource
+        class from :attr:`class_list`, evaluated for every season in
+        :data:`_SEASONS`.
+
+        Returns:
+            dict[tuple[str, str], float]: Mapping from
+            ``(season, component)`` to class-level UCAP in MW.
+
+        Raises:
+            ValueError: If a resource class in :attr:`class_list` is not
+                present in the source CSV.
+        """
+        ucap_df = pd.read_csv(RESOURCE_CLASS_UCAP_CSV_PATH)
+        ucap_df["resource_class"] = ucap_df["resource_class"].astype(str).str.strip()
+        ucap_df = ucap_df.set_index("resource_class")
+
+        class_ucap: dict[tuple[str, str], float] = {}
+        for component, resource_class in zip(
+            self.component_list, self.class_list, strict=True
+        ):
+            if resource_class not in ucap_df.index:
+                raise ValueError(
+                    f"Resource class '{resource_class}' not found in UCAP CSV "
+                    f"{RESOURCE_CLASS_UCAP_CSV_PATH}."
+                )
+            for season in _SEASONS:
+                class_ucap[(season, component)] = float(
+                    ucap_df.loc[resource_class, season]
+                )
+        return class_ucap
+
+    def _load_class_isac(self) -> dict[tuple[str, str], float]:
+        """Load class-level ISAC MW per ``(season, component)``.
+
+        Reads :data:`RESOURCE_CLASS_ISAC_CSV_PATH` and returns a dict
+        keyed by ``(season, component)`` with values in MW.  Each
+        component is assigned the ISAC MW of its associated resource
+        class from :attr:`class_list`, evaluated for every season in
+        :data:`_SEASONS`.
+
+        Returns:
+            dict[tuple[str, str], float]: Mapping from
+            ``(season, component)`` to class-level ISAC in MW.
+
+        Raises:
+            ValueError: If a resource class in :attr:`class_list` is not
+                present in the source CSV.
+        """
+        isac_df = pd.read_csv(RESOURCE_CLASS_ISAC_CSV_PATH)
+        isac_df["resource_class"] = isac_df["resource_class"].astype(str).str.strip()
+        isac_df = isac_df.set_index("resource_class")
+
+        class_isac: dict[tuple[str, str], float] = {}
+        for component, resource_class in zip(
+            self.component_list, self.class_list, strict=True
+        ):
+            if resource_class not in isac_df.index:
+                raise ValueError(
+                    f"Resource class '{resource_class}' not found in ISAC CSV "
+                    f"{RESOURCE_CLASS_ISAC_CSV_PATH}."
+                )
+            for season in _SEASONS:
+                class_isac[(season, component)] = float(
+                    isac_df.loc[resource_class, season]
+                )
+        return class_isac
+
+    def _compute_class_ucap_isac_conversion(self) -> dict[tuple[str, str], float]:
+        """Compute the class-level UCAP / ISAC conversion factor.
+
+        Assumes :attr:`class_ucap` and :attr:`class_isac` have already
+        been populated over the same ``(season, component)`` keys.
+        Returns the per-key ratio ``class_ucap / class_isac`` as a dict
+        keyed by ``(season, component)``.  This factor can later be
+        applied to a component-level ISAC to convert it to a
+        component-level UCAP.
+
+        ``(season, component)`` keys whose ISAC value is zero map to
+        ``NaN`` rather than raising, so callers can distinguish
+        undefined conversions from valid zero-ratio ones.
+
+        Returns:
+            dict[tuple[str, str], float]: Mapping from
+            ``(season, component)`` to ``class_ucap / class_isac``
+            (or ``NaN`` when ``class_isac`` is zero).
+        """
+        class_ucap_isac_conversion: dict[tuple[str, str], float] = {}
+        for key, isac_value in self.class_isac.items():
+            ucap_value = self.class_ucap[key]
+            if isac_value == 0.0:
+                class_ucap_isac_conversion[key] = float("nan")
+            else:
+                class_ucap_isac_conversion[key] = ucap_value / isac_value
+        return class_ucap_isac_conversion
+
+    def _compute_sac(self) -> dict[tuple[str, str], float]:
+        """Compute the component-level Seasonal Accredited Capacity (SAC).
+
+        Assumes :attr:`isac` and :attr:`class_ucap_isac_conversion`
+        have already been populated.  For every ``(season, component)``
+        key present in :attr:`isac`, the SAC is computed as
+        ``isac * class_ucap_isac_conversion``.
+
+        The returned dict shares its keys with :attr:`isac` (i.e. only
+        seasons that are present in :attr:`df_h_limit`).  When a key is
+        missing from :attr:`class_ucap_isac_conversion` (which should
+        not happen because the conversion dict spans all four seasons),
+        the SAC value falls back to ``NaN`` so partial coverage stays
+        visible to the caller.
+
+        Returns:
+            dict[tuple[str, str], float]: Mapping from
+            ``(season, component)`` to component-level SAC in MW.
+        """
+        sac: dict[tuple[str, str], float] = {}
+        for key, isac_value in self.isac.items():
+            conversion = self.class_ucap_isac_conversion.get(key, float("nan"))
+            sac[key] = isac_value * conversion
+        return sac
