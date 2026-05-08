@@ -201,8 +201,8 @@ class MisoCapacity:
                 data are averaged to hourly resolution internally.
             zone (int): MISO zone number used to look up the subregion and
                 PRA clearing prices.
-            interconnect_limit (float): Maximum total MW that can flow from
-                all components combined in any single hour.
+            interconnect_limit (float): Maximum interconnect capacity in kW.
+                Stored internally as MW (``self.interconnect_limit_mw``).
             pra_years (int | list[int] | None): PRA auction year(s) used for
                 clearing prices.  Accepts a single int, a list of ints (prices
                 are averaged), or ``None`` / empty list (defaults to the most
@@ -224,11 +224,11 @@ class MisoCapacity:
         # Save the verbose flag
         self.verbose = verbose
 
-        # Save the interconnect limit
-        self.interconnect_limit = interconnect_limit
+        # Convert kW input to MW for all internal calculations
+        self.interconnect_limit_mw = interconnect_limit / 1000.0
 
         # When True (default), any (year, season) pair in
-        # ``df_h_limit`` with fewer than
+        # ``df_h_limit_mw`` with fewer than
         # ``_LOW_HOUR_SEASON_THRESHOLD_DAYS * 24`` classified hours is
         # dropped before the per-component availability metrics are
         # computed.  Set to False for unit tests on small windows.
@@ -287,8 +287,13 @@ class MisoCapacity:
         # Get the subregion from the zone
         self.subregion = self._get_subregion()
 
+        # Convert component columns from kW to MW; store for reference and downstream use
+        df_mw = df.copy()
+        df_mw[self.component_list] = df_mw[self.component_list] / 1000.0
+        self.df_mw = df_mw
+
         # Process the dataframe (uses self.subregion to pick RA / AAOC cols)
-        self.df_h = self._process_to_hourly(df)
+        self.df_h_mw = self._process_to_hourly(self.df_mw)
 
         # Process the priority order
 
@@ -335,38 +340,38 @@ class MisoCapacity:
             self.priority_order = priority_order
 
         # Limit the component availability contributions to the interconnect limit according to the priority order
-        self.df_h_limit = self._limit_hourly_availability_contributions()
+        self.df_h_limit_mw = self._limit_hourly_availability_contributions()
 
         # Compute per-component availability metrics off the limit-capped
         # hourly frame.  Order matters:
         #   1. Capture per-(year, season) hour counts from the original
-        #      ``df_h_limit`` (so the diagnostic survives any later drops).
+        #      ``df_h_limit_mw`` (so the diagnostic survives any later drops).
         #   2. Optionally drop sparsely-covered (year, season) pairs.
         #   3. Compute per-year, per-component AAOC means used for the
         #      tier-2 padding step.
         #   4. Compute the tier-1 / tier-2 / all-hours / ISAC dicts.
         self.hours_per_year_season = self._compute_hour_counts()
-        self.df_h_limit = self._drop_low_hour_seasons()
-        self.aaoc_per_year = self._compute_aaoc_per_year()
+        self.df_h_limit_mw = self._drop_low_hour_seasons()
+        self.aaoc_per_year_mw = self._compute_aaoc_per_year()
         (
-            self.tier_1_availability,
-            self.tier_2_availability,
-            self.all_hours_availability,
-            self.isac,
+            self.tier_1_availability_mw,
+            self.tier_2_availability_mw,
+            self.all_hours_availability_mw,
+            self.isac_mw,
         ) = self._compute_tier_availabilities()
 
-        # Load the class-level UCAP and ISAC
-        self.class_ucap = self._load_class_ucap()
-        self.class_isac = self._load_class_isac()
+        # Load the class-level UCAP and ISAC (MW, from MISO reference CSVs)
+        self.class_ucap_mw = self._load_class_ucap_mw()
+        self.class_isac_mw = self._load_class_isac_mw()
 
         # Compute class-level UCAP / ISAC conversion factor
         self.class_ucap_isac_conversion = self._compute_class_ucap_isac_conversion()
 
-        # Compute component-level Seasonal Accredited Capacity (SAC)
-        self.sac = self._compute_sac()
+        # Compute component-level Seasonal Accredited Capacity (MW)
+        self.sac_mw = self._compute_sac_mw()
 
         # For now, assume zrc (Zonal Resource Credits) simply equals sac
-        self.zrc = self.sac
+        self.zrc_mw = self.sac_mw
 
         # Get a list of available pra price years
         self.available_pra_years = self._get_available_pra_years()
@@ -494,7 +499,7 @@ class MisoCapacity:
     def _limit_hourly_availability_contributions(self) -> pd.DataFrame:
         """Cap the row-wise sum of component contributions at the interconnect limit.
 
-        Operates on :attr:`df_h`, which is already hourly (one row per
+        Operates on :attr:`df_h_mw`, which is already hourly (one row per
         clock hour), so each row's value is itself the hourly mean and no
         sub-hourly aggregation is needed.  For every hour whose row-sum
         over :attr:`component_list` exceeds :attr:`interconnect_limit`,
@@ -513,15 +518,15 @@ class MisoCapacity:
           next-lowest, and so on.
 
         Returns:
-            pd.DataFrame: A copy of :attr:`df_h` with the values in
+            pd.DataFrame: A copy of :attr:`df_h_mw` with the values in
             :attr:`component_list` reduced so that the per-hour row-sum
             is at most :attr:`interconnect_limit`.  All other columns
             (``season``, ``ra_<subregion>``, ``aaoc_<subregion>``,
             ``year``, ...) are passed through unchanged.
         """
-        df_h_limit = self.df_h.copy()
+        df_h_limit = self.df_h_mw.copy()
         components = self.component_list
-        limit = self.interconnect_limit
+        limit = self.interconnect_limit_mw
 
         row_sum = df_h_limit[components].sum(axis=1)
 
@@ -559,8 +564,8 @@ class MisoCapacity:
     def _compute_aaoc_per_year(self) -> dict[tuple[int, str], float]:
         """Compute per-year, per-component mean availability over AAOC hours.
 
-        Operates on :attr:`df_h_limit`.  Years with no AAOC hours in
-        :attr:`df_h_limit` are simply absent from the returned dict;
+        Operates on :attr:`df_h_limit_mw`.  Years with no AAOC hours in
+        :attr:`df_h_limit_mw` are simply absent from the returned dict;
         subsequent tier-2 padding falls back to ``NaN`` for those years
         rather than raising.
 
@@ -570,7 +575,7 @@ class MisoCapacity:
             AAOC hours in that ``year``.
         """
         aaoc_column = f"aaoc_{self.subregion}"
-        df_aaoc = self.df_h_limit[self.df_h_limit[aaoc_column]]
+        df_aaoc = self.df_h_limit_mw[self.df_h_limit_mw[aaoc_column]]
         if df_aaoc.empty:
             return {}
 
@@ -584,7 +589,7 @@ class MisoCapacity:
     def _compute_hour_counts(self) -> dict[tuple[int, str], int]:
         """Compute the per-(year, season) hour-count diagnostic.
 
-        Counts the classified hours present in :attr:`df_h_limit` for
+        Counts the classified hours present in :attr:`df_h_limit_mw` for
         each ``(year, season)`` pair.  Should be called *before*
         :meth:`_drop_low_hour_seasons` so the dict reflects the
         original coverage of the input simulation, not the post-filter
@@ -592,16 +597,16 @@ class MisoCapacity:
 
         Returns:
             dict[tuple[int, str], int]: Mapping from ``(year, season)``
-            to the count of classified hours in :attr:`df_h_limit`.
+            to the count of classified hours in :attr:`df_h_limit_mw`.
         """
-        per_year_season = self.df_h_limit.groupby(["year", "season"]).size()
+        per_year_season = self.df_h_limit_mw.groupby(["year", "season"]).size()
         return {
             (int(year), str(season)): int(count)
             for (year, season), count in per_year_season.items()
         }
 
     def _drop_low_hour_seasons(self) -> pd.DataFrame:
-        """Drop sparsely-covered ``(year, season)`` pairs from :attr:`df_h_limit`.
+        """Drop sparsely-covered ``(year, season)`` pairs from :attr:`df_h_limit_mw`.
 
         When :attr:`remove_low_hour_seasons` is True, any
         ``(year, season)`` pair whose entry in
@@ -614,17 +619,17 @@ class MisoCapacity:
         against the returned frame to see what was dropped.
 
         When :attr:`remove_low_hour_seasons` is False, the input
-        :attr:`df_h_limit` is returned unchanged.
+        :attr:`df_h_limit_mw` is returned unchanged.
 
         Returns:
             pd.DataFrame: The filtered (or unchanged)
-            :attr:`df_h_limit`.
+            :attr:`df_h_limit_mw`.
         """
         if not self.remove_low_hour_seasons:
-            return self.df_h_limit
+            return self.df_h_limit_mw
 
         threshold_hours = _LOW_HOUR_SEASON_THRESHOLD_DAYS * 24
-        df = self.df_h_limit
+        df = self.df_h_limit_mw
         group_sizes = df.groupby(["year", "season"])["year"].transform("size")
         keep_mask = group_sizes >= threshold_hours
         if keep_mask.all():
@@ -652,25 +657,25 @@ class MisoCapacity:
     ]:
         """Compute per-(season, component) tier 1/2, all-hours, and ISAC means.
 
-        Operates on :attr:`df_h_limit` and assumes :attr:`aaoc_per_year`
+        Operates on :attr:`df_h_limit_mw` and assumes :attr:`aaoc_per_year_mw`
         has already been populated by :meth:`_compute_aaoc_per_year`.
 
         For each ``(season, component)`` pair, four values are produced:
 
         - ``tier_1_availability``: mean of ``component`` over hours
           that are NOT seasonal RA hours, pooled across every year
-          present in :attr:`df_h_limit`.
+          present in :attr:`df_h_limit_mw`.
         - ``tier_2_availability``: mean of ``component`` over seasonal
           RA hours, pooled across years.  For any ``(year, season)``
           combination with fewer than 65 RA hours, that year's
           contribution is right-padded up to 65 entries using
-          ``self.aaoc_per_year[(year, component)]`` before being
+          ``self.aaoc_per_year_mw[(year, component)]`` before being
           concatenated.  ``(year, season)`` combinations with zero
-          classified hours in :attr:`df_h_limit` are skipped entirely
+          classified hours in :attr:`df_h_limit_mw` are skipped entirely
           (no synthetic AAOC padding).
         - ``all_hours_availability``: mean of ``component`` over every
           classified hour in the season.
-        - ``isac``: ``0.2 * tier_1 + 0.8 * tier_2``.
+        - ``isac_mw``: ``0.2 * tier_1_mw + 0.8 * tier_2_mw``.
 
         When a ``(year, season)`` combination has fewer than 65 RA
         hours and the same ``year`` has no AAOC entry in
@@ -682,12 +687,12 @@ class MisoCapacity:
 
         Returns:
             tuple[dict, dict, dict, dict]: A 4-tuple
-            ``(tier_1_availability, tier_2_availability,
-            all_hours_availability, isac)`` of dicts keyed by
+            ``(tier_1_availability_mw, tier_2_availability_mw,
+            all_hours_availability_mw, isac_mw)`` of dicts keyed by
             ``(season, component)``.
         """
         ra_column = f"ra_{self.subregion}"
-        df = self.df_h_limit
+        df = self.df_h_limit_mw
         seasons = df["season"].unique()
         years = sorted(int(y) for y in df["year"].unique())
 
@@ -719,7 +724,7 @@ class MisoCapacity:
                         df_year_season[ra_column], component
                     ].to_numpy()
                     if len(tier_2_year) < _TIER_2_PAD_TARGET:
-                        pad_value = self.aaoc_per_year.get(
+                        pad_value = self.aaoc_per_year_mw.get(
                             (year, component), float("nan")
                         )
                         tier_2_year = np.pad(
@@ -753,8 +758,8 @@ class MisoCapacity:
 
         return tier_1_availability, tier_2_availability, all_hours_availability, isac
 
-    def _load_class_ucap(self) -> dict[tuple[str, str], float]:
-        """Load class-level UCAP MW per ``(season, component)``.
+    def _load_class_ucap_mw(self) -> dict[tuple[str, str], float]:
+        """Load class-level UCAP per ``(season, component)`` in MW.
 
         Reads :data:`RESOURCE_CLASS_UCAP_CSV_PATH` and returns a dict
         keyed by ``(season, component)`` with values in MW.  Each
@@ -774,7 +779,7 @@ class MisoCapacity:
         ucap_df["resource_class"] = ucap_df["resource_class"].astype(str).str.strip()
         ucap_df = ucap_df.set_index("resource_class")
 
-        class_ucap: dict[tuple[str, str], float] = {}
+        class_ucap_mw: dict[tuple[str, str], float] = {}
         for component, resource_class in zip(
             self.component_list, self.class_list, strict=True
         ):
@@ -784,13 +789,13 @@ class MisoCapacity:
                     f"{RESOURCE_CLASS_UCAP_CSV_PATH}."
                 )
             for season in _SEASONS:
-                class_ucap[(season, component)] = float(
+                class_ucap_mw[(season, component)] = float(
                     ucap_df.loc[resource_class, season]
                 )
-        return class_ucap
+        return class_ucap_mw
 
-    def _load_class_isac(self) -> dict[tuple[str, str], float]:
-        """Load class-level ISAC MW per ``(season, component)``.
+    def _load_class_isac_mw(self) -> dict[tuple[str, str], float]:
+        """Load class-level ISAC per ``(season, component)`` in MW.
 
         Reads :data:`RESOURCE_CLASS_ISAC_CSV_PATH` and returns a dict
         keyed by ``(season, component)`` with values in MW.  Each
@@ -810,7 +815,7 @@ class MisoCapacity:
         isac_df["resource_class"] = isac_df["resource_class"].astype(str).str.strip()
         isac_df = isac_df.set_index("resource_class")
 
-        class_isac: dict[tuple[str, str], float] = {}
+        class_isac_mw: dict[tuple[str, str], float] = {}
         for component, resource_class in zip(
             self.component_list, self.class_list, strict=True
         ):
@@ -820,17 +825,17 @@ class MisoCapacity:
                     f"{RESOURCE_CLASS_ISAC_CSV_PATH}."
                 )
             for season in _SEASONS:
-                class_isac[(season, component)] = float(
+                class_isac_mw[(season, component)] = float(
                     isac_df.loc[resource_class, season]
                 )
-        return class_isac
+        return class_isac_mw
 
     def _compute_class_ucap_isac_conversion(self) -> dict[tuple[str, str], float]:
         """Compute the class-level UCAP / ISAC conversion factor.
 
-        Assumes :attr:`class_ucap` and :attr:`class_isac` have already
+        Assumes :attr:`class_ucap_mw` and :attr:`class_isac_mw` have already
         been populated over the same ``(season, component)`` keys.
-        Returns the per-key ratio ``class_ucap / class_isac`` as a dict
+        Returns the per-key ratio ``class_ucap_mw / class_isac_mw`` as a dict
         keyed by ``(season, component)``.  This factor can later be
         applied to a component-level ISAC to convert it to a
         component-level UCAP.
@@ -845,24 +850,27 @@ class MisoCapacity:
             (or ``NaN`` when ``class_isac`` is zero).
         """
         class_ucap_isac_conversion: dict[tuple[str, str], float] = {}
-        for key, isac_value in self.class_isac.items():
-            ucap_value = self.class_ucap[key]
+        for key, isac_value in self.class_isac_mw.items():
+            ucap_value = self.class_ucap_mw[key]
             if isac_value == 0.0:
                 class_ucap_isac_conversion[key] = float("nan")
             else:
                 class_ucap_isac_conversion[key] = ucap_value / isac_value
         return class_ucap_isac_conversion
 
-    def _compute_sac(self) -> dict[tuple[str, str], float]:
-        """Compute the component-level Seasonal Accredited Capacity (SAC).
+    def _compute_sac_mw(self) -> dict[tuple[str, str], float]:
+        """Compute the component-level Seasonal Accredited Capacity (SAC) in MW.
 
-        Assumes :attr:`isac` and :attr:`class_ucap_isac_conversion`
+        Assumes :attr:`isac_mw` and :attr:`class_ucap_isac_conversion`
         have already been populated.  For every ``(season, component)``
-        key present in :attr:`isac`, the SAC is computed as
-        ``isac * class_ucap_isac_conversion``.
+        key present in :attr:`isac_mw`, the SAC is computed as
+        ``isac_mw * class_ucap_isac_conversion``.  Because
+        :attr:`isac_mw` is already in MW and :attr:`class_ucap_isac_conversion`
+        is a dimensionless MW/MW ratio, the result is in MW with no
+        additional unit conversion.
 
-        The returned dict shares its keys with :attr:`isac` (i.e. only
-        seasons that are present in :attr:`df_h_limit`).  When a key is
+        The returned dict shares its keys with :attr:`isac_mw` (i.e. only
+        seasons that are present in :attr:`df_h_limit_mw`).  When a key is
         missing from :attr:`class_ucap_isac_conversion` (which should
         not happen because the conversion dict spans all four seasons),
         the SAC value falls back to ``NaN`` so partial coverage stays
@@ -872,11 +880,11 @@ class MisoCapacity:
             dict[tuple[str, str], float]: Mapping from
             ``(season, component)`` to component-level SAC in MW.
         """
-        sac: dict[tuple[str, str], float] = {}
-        for key, isac_value in self.isac.items():
+        sac_mw: dict[tuple[str, str], float] = {}
+        for key, isac_value in self.isac_mw.items():
             conversion = self.class_ucap_isac_conversion.get(key, float("nan"))
-            sac[key] = isac_value * conversion
-        return sac
+            sac_mw[key] = isac_value * conversion
+        return sac_mw
 
     def _get_available_pra_years(self) -> list[int]:
         """Get available PRA price years from the bundled PRA CSV.
@@ -975,11 +983,11 @@ class MisoCapacity:
         Multiplies the component ZRC (Zonal Resource Credits, MW) by the
         season's PRA clearing price ($/MW-day) and the number of days in
         that season.  Only ``(season, component)`` pairs present in
-        :attr:`zrc` contribute; seasons absent from :attr:`df_h_limit` (e.g.
+        :attr:`zrc_mw` contribute; seasons absent from :attr:`df_h_limit_mw` (e.g.
         because they were filtered by :meth:`_drop_low_hour_seasons`) will
         not appear in the returned dict.
 
-        Assumes :attr:`zrc`, :attr:`pra_prices`, and :attr:`days_per_season`
+        Assumes :attr:`zrc_mw`, :attr:`pra_prices`, and :attr:`days_per_season`
         have already been populated.
 
         Returns:
@@ -990,7 +998,7 @@ class MisoCapacity:
             (season, component): zrc_value
             * self.pra_prices[season]
             * self.days_per_season[season]
-            for (season, component), zrc_value in self.zrc.items()
+            for (season, component), zrc_value in self.zrc_mw.items()
         }
 
     def _compute_annual_revenue(self) -> dict[str, float]:
@@ -1021,7 +1029,7 @@ class MisoCapacity:
         The returned DataFrame has one column per MISO season (summer, fall,
         winter, spring) and one row per metric, in the same order as the
         :meth:`__init__` computation flow.  Seasons absent from
-        :attr:`df_h_limit` (e.g. filtered by
+        :attr:`df_h_limit_mw` (e.g. filtered by
         :meth:`_drop_low_hour_seasons`) show ``NaN``.
 
         Args:
@@ -1040,8 +1048,8 @@ class MisoCapacity:
             )
 
         hours_per_season = (
-            self.df_h_limit.groupby("season").size().to_dict()
-            if not self.df_h_limit.empty
+            self.df_h_limit_mw.groupby("season").size().to_dict()
+            if not self.df_h_limit_mw.empty
             else {}
         )
 
@@ -1061,17 +1069,17 @@ class MisoCapacity:
         for season in _SEASONS:
             key = (season, component)
             rows["# Hours"][season] = float(hours_per_season.get(season, float("nan")))
-            rows["Tier 1 (MW)"][season] = self.tier_1_availability.get(
+            rows["Tier 1 (MW)"][season] = self.tier_1_availability_mw.get(
                 key, float("nan")
             )
-            rows["Tier 2 (MW)"][season] = self.tier_2_availability.get(
+            rows["Tier 2 (MW)"][season] = self.tier_2_availability_mw.get(
                 key, float("nan")
             )
-            rows["ISAC (MW)"][season] = self.isac.get(key, float("nan"))
-            rows["Class UCAP (MW)"][season] = self.class_ucap.get(key, float("nan"))
-            rows["Class ISAC (MW)"][season] = self.class_isac.get(key, float("nan"))
-            rows["SAC (MW)"][season] = self.sac.get(key, float("nan"))
-            rows["ZRC (MW)"][season] = self.zrc.get(key, float("nan"))
+            rows["ISAC (MW)"][season] = self.isac_mw.get(key, float("nan"))
+            rows["Class UCAP (MW)"][season] = self.class_ucap_mw.get(key, float("nan"))
+            rows["Class ISAC (MW)"][season] = self.class_isac_mw.get(key, float("nan"))
+            rows["SAC (MW)"][season] = self.sac_mw.get(key, float("nan"))
+            rows["ZRC (MW)"][season] = self.zrc_mw.get(key, float("nan"))
             rows["PRA Price ($/MW-day)"][season] = self.pra_prices.get(
                 season, float("nan")
             )
