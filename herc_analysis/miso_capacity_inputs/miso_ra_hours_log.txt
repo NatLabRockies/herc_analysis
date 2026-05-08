@@ -1,0 +1,16 @@
+Files read: PY 27-28 RA Hours (FALL)743792.xlsx, RA Hours PY 26723002.xlsx
+Date: 2026-05-07 13:08:46
+Rows: 28488
+Time range: 2022-09-01 05:00:00+00:00  ->  2025-12-01 04:00:00+00:00
+Duplicate timestamps: 0
+Gaps (non-1h diffs): 0
+Columns: ['time_utc', 'season', 'ra_central_north', 'ra_south', 'aaoc_central_north', 'aaoc_south']
+Dtypes:
+time_utc              datetime64[ns, UTC]
+season                     string[python]
+ra_central_north                    int64
+ra_south                            int64
+aaoc_central_north                float64
+aaoc_south                        float64
+dtype: object
+========================================
