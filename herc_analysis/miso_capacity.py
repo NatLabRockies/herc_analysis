@@ -1443,3 +1443,218 @@ class MisoCapacity:
             ax=ax,
             save_path=save_path,
         )
+
+    def plot_isac_availability_bar(
+        self,
+        component: str,
+        ax: "plt.Axes | None" = None,
+        save_path: Path | None = None,
+    ) -> "plt.Figure":
+        """Plot a grouped bar chart of Tier 1, Tier 2, and ISAC availability by season.
+
+        For each MISO season in which ``component`` has computed ISAC values,
+        draws three side-by-side bars showing the Tier 1 (non-RA hours), Tier 2
+        (RA hours), and ISAC availability in MW.  A horizontal dashed line marks
+        the mean AAOC across all planning years.
+
+        Args:
+            component (str): Component name; must appear in
+                :attr:`component_list`.
+            ax (plt.Axes | None): Existing axes to draw into.  When ``None``
+                a new figure/axes pair is created.  Defaults to None.
+            save_path (Path | None): If provided, save the figure here.
+                Defaults to None.
+
+        Returns:
+            plt.Figure: The matplotlib figure containing the bar chart.
+
+        Raises:
+            ValueError: If ``component`` is not in :attr:`component_list`.
+        """
+        if component not in self.component_list:
+            raise ValueError(
+                f"'{component}' not found in component_list: {self.component_list}"
+            )
+
+        seasons = [s for s in _SEASONS if (s, component) in self.isac_mw]
+
+        tier1 = [self.tier_1_availability_mw[(s, component)] for s in seasons]
+        tier2 = [self.tier_2_availability_mw[(s, component)] for s in seasons]
+        isac = [self.isac_mw[(s, component)] for s in seasons]
+
+        aaoc_values = [
+            v
+            for (_, comp), v in self.aaoc_per_planning_year_mw.items()
+            if comp == component
+        ]
+        aaoc_value = float(np.mean(aaoc_values)) if aaoc_values else None
+
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(9, 5))
+        else:
+            fig = ax.figure
+
+        x = np.arange(len(seasons))
+        width = 0.25
+
+        ax.bar(
+            x - width, tier1, width, label="Tier 1 (non-RA hours)", color="steelblue"
+        )
+        ax.bar(x, tier2, width, label="Tier 2 (RA hours)", color="darkorange")
+        ax.bar(x + width, isac, width, label="ISAC (0.2·T1 + 0.8·T2)", color="seagreen")
+        if aaoc_value is not None:
+            ax.axhline(
+                aaoc_value,
+                color="purple",
+                ls="--",
+                lw=1.5,
+                label=f"AAOC ({aaoc_value:.1f} MW)",
+            )
+
+        ax.set_xticks(x)
+        ax.set_xticklabels([s.capitalize() for s in seasons])
+        ax.set_ylabel("Availability (MW)")
+        ax.set_title(f"{component} — seasonal Tier 1 / Tier 2 / ISAC availability")
+        ax.legend()
+        ax.grid(axis="y")
+        fig.tight_layout()
+
+        if save_path is not None:
+            fig.savefig(save_path)
+        return fig
+
+    def plot_isac_hourly_scatter(
+        self,
+        component: str,
+        axes: "list[plt.Axes] | None" = None,
+        save_path: Path | None = None,
+    ) -> "plt.Figure":
+        """Plot hourly output scatter by season with RA hours and ISAC metrics overlaid.
+
+        For each MISO season in which ``component`` has computed ISAC values,
+        draws a scatter plot of hourly ``component`` output (MW) colored by
+        whether each hour is an RA hour (Tier 2) or non-RA hour (Tier 1).
+        Horizontal reference lines are added for Tier 1 availability, Tier 2
+        availability, ISAC, and the mean AAOC across all planning years.
+
+        Args:
+            component (str): Component name; must appear in
+                :attr:`component_list`.
+            axes (list[plt.Axes] | None): Pre-created list of axes, one per
+                available season (in the order summer → fall → winter →
+                spring).  When ``None`` a new figure/axes row is created.
+            save_path (Path | None): If provided, save the figure here.
+                Defaults to None.
+
+        Returns:
+            plt.Figure: The matplotlib figure containing the scatter plots.
+
+        Raises:
+            ValueError: If ``component`` is not in :attr:`component_list`.
+        """
+        if component not in self.component_list:
+            raise ValueError(
+                f"'{component}' not found in component_list: {self.component_list}"
+            )
+
+        seasons = [s for s in _SEASONS if (s, component) in self.isac_mw]
+
+        season_color = {
+            "summer": "tab:orange",
+            "fall": "tab:brown",
+            "winter": "tab:blue",
+            "spring": "tab:green",
+        }
+
+        if axes is None:
+            fig, axes = plt.subplots(
+                1,
+                len(seasons),
+                figsize=(5 * len(seasons), 5),
+                sharey=True,
+            )
+            if len(seasons) == 1:
+                axes = [axes]
+        else:
+            fig = axes[0].figure
+
+        ra_col = f"ra_{self.subregion}"
+        df_h = self.df_h_limit_mw
+
+        # Average AAOC across all planning years for this component
+        aaoc_values = [
+            v
+            for (_, comp), v in self.aaoc_per_planning_year_mw.items()
+            if comp == component
+        ]
+        aaoc_value = float(np.mean(aaoc_values)) if aaoc_values else None
+
+        for ax, season in zip(axes, seasons, strict=False):
+            df_s = df_h[df_h["season"] == season].reset_index(drop=True)
+            ra_mask = df_s[ra_col]
+
+            tier1_hours = int((~ra_mask).sum())
+            tier2_hours = int(ra_mask.sum())
+
+            ax.scatter(
+                df_s.index[~ra_mask],
+                df_s.loc[~ra_mask, component],
+                s=2,
+                alpha=0.3,
+                color="steelblue",
+                label=f"Non-RA hours (Tier 1: {tier1_hours}h)",
+            )
+            ax.scatter(
+                df_s.index[ra_mask],
+                df_s.loc[ra_mask, component],
+                s=6,
+                alpha=0.7,
+                color="tomato",
+                label=f"RA hours (Tier 2: {tier2_hours}h)",
+            )
+
+            key = (season, component)
+            ax.axhline(
+                self.tier_1_availability_mw[key],
+                color="steelblue",
+                ls="--",
+                lw=1.5,
+                label=f"Tier 1 ({self.tier_1_availability_mw[key]:.1f} MW)",
+            )
+            ax.axhline(
+                self.tier_2_availability_mw[key],
+                color="darkorange",
+                ls="--",
+                lw=1.5,
+                label=f"Tier 2 ({self.tier_2_availability_mw[key]:.1f} MW)",
+            )
+            ax.axhline(
+                self.isac_mw[key],
+                color=season_color[season],
+                ls="-",
+                lw=2,
+                label=f"ISAC  ({self.isac_mw[key]:.1f} MW)",
+            )
+            if aaoc_value is not None:
+                ax.axhline(
+                    aaoc_value,
+                    color="purple",
+                    ls="--",
+                    lw=1.5,
+                    label=f"AAOC  ({aaoc_value:.1f} MW)",
+                )
+
+            ax.set_title(season.capitalize())
+            ax.set_xlabel("Hour index (within season)")
+            if ax is axes[0]:
+                ax.set_ylabel(f"{component} (MW)")
+            ax.legend(markerscale=4, fontsize=8)
+
+        fig.suptitle(
+            f"Hourly output — RA hours highlighted with ISAC metrics\n{component}"
+        )
+        fig.tight_layout()
+
+        if save_path is not None:
+            fig.savefig(save_path)
+        return fig
