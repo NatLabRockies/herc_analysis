@@ -38,6 +38,7 @@ mc_wind = MisoCapacity(
     df=df[["time_utc", "wind_farm.power"]],
     zone=ZONE,
     interconnect_limit=INTERCONNECT_LIMIT_KW,
+    verbose=True,
 )
 
 # ── Add battery column via compute_battery_availability ──────────────────────

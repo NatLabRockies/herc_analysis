@@ -87,7 +87,7 @@ df_b, df_b_hour = compute_battery_availability(
 # Plot the first 8 hours (48 sub-hourly steps at 10-min resolution)
 N_PLOT = 48
 
-fig, axes = plt.subplots(3, 2, figsize=(14, 9), sharex="col")
+fig, axes = plt.subplots(3, 2, figsize=(14, 9), sharex="col", sharey="row")
 fig.suptitle("Battery availability — compute_battery_availability demo", fontsize=13)
 
 for col, (df, df_h, label) in enumerate(
@@ -96,23 +96,45 @@ for col, (df, df_h, label) in enumerate(
         (df_b, df_b_hour, "Scenario B: discharging from 40 % SOC"),
     ]
 ):
-    t_sub = df["time_utc"].iloc[:N_PLOT]
-    t_hr = df_h["time_utc"].iloc[:N_PLOT]
+    # Time range from the original N_PLOT sub-hourly steps
+    t_end = df["time_utc"].iloc[N_PLOT - 1]
+
+    # Upsample sub-hourly data to 1-minute resolution via linear interpolation
+    df_1min = (
+        df.set_index("time_utc")
+        .resample("1min")
+        .asfreq()
+        .interpolate(method="linear")
+        .reset_index()
+    )
+    df_1min = df_1min[df_1min["time_utc"] <= t_end]
+
+    # Deduplicated hourly data for the same time range (df_h has one row per
+    # sub-hourly step with floored timestamps; keep only the first per hour)
+    df_h_hr = (
+        df_h[df_h["time_utc"] <= t_end]
+        .drop_duplicates(subset=["time_utc"])
+        .reset_index(drop=True)
+    )
+
+    t_sub = df_1min["time_utc"]
+    t_hr = df_h_hr["time_utc"]
 
     ax = axes[0, col]
     ax.plot(
         t_sub,
-        df["battery_soc"].iloc[:N_PLOT],
+        df_1min["battery_soc"],
         color="steelblue",
-        label="SOC (sub-hourly)",
+        label="SOC (1-min, interp.)",
     )
     ax.plot(
         t_hr,
-        df_h["soc_hour_start"].iloc[:N_PLOT],
+        df_h_hr["soc_hour_start"],
         "o--",
         color="steelblue",
         ms=4,
-        label="SOC at hour start",
+        drawstyle="steps-post",
+        label="SOC at hour start (hourly)",
     )
     ax.axhline(
         BATTERY_MIN_SOC,
@@ -129,17 +151,18 @@ for col, (df, df_h, label) in enumerate(
     ax = axes[1, col]
     ax.plot(
         t_sub,
-        df["battery_power"].iloc[:N_PLOT] / 1000,
+        df_1min["battery_power"] / 1000,
         color="darkorange",
-        label="Power (sub-hourly)",
+        label="Power (1-min, interp.)",
     )
     ax.plot(
         t_hr,
-        df_h["power_hourly"].iloc[:N_PLOT] / 1000,
+        df_h_hr["power_hourly"] / 1000,
         "o--",
         color="darkorange",
         ms=4,
-        label="Hourly mean",
+        drawstyle="steps-post",
+        label="Hourly mean power (hourly)",
     )
     ax.axhline(
         BATTERY_RATED_POWER_KW / 1000,
@@ -154,20 +177,14 @@ for col, (df, df_h, label) in enumerate(
 
     ax = axes[2, col]
     ax.plot(
-        t_sub,
-        df["battery_availability"].iloc[:N_PLOT] / 1000,
+        t_hr,
+        df_h_hr["battery_availability"] / 1000,
         color="seagreen",
         lw=2,
-        label="Availability (kW → MW)",
+        drawstyle="steps-post",
+        label="Availability (hourly)",
     )
-    ax.plot(
-        t_hr,
-        df_h["output_potential_power"].iloc[:N_PLOT] / 1000,
-        "o--",
-        color="seagreen",
-        ms=4,
-        label="Output potential (hourly)",
-    )
+    ax.axhline(0, color="black", lw=1.2)
     ax.axhline(
         BATTERY_RATED_POWER_KW / 1000,
         color="green",

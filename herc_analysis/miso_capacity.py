@@ -769,8 +769,8 @@ class MisoCapacity:
             print(
                 f"[MisoCapacity] dropping {len(dropped)} planning year(s) "
                 f"with < {threshold_hours} hours: {dropped}\n"
-                f"  - Startdate moved from {df.iloc[0]['time_utc']} to {df.loc[keep_mask].iloc[0]['time_utc']}\n"
-                f"  - Enddate moved from {df.iloc[-1]['time_utc']} to {df.loc[keep_mask].iloc[-1]['time_utc']}\n"
+                f"  - Start date moved from {df.iloc[0]['time_utc']} to {df.loc[keep_mask].iloc[0]['time_utc']}\n"
+                f"  - End date moved from {df.iloc[-1]['time_utc']} to {df.loc[keep_mask].iloc[-1]['time_utc']}\n"
             )
         return df.loc[keep_mask].reset_index(drop=True)
 
@@ -1217,18 +1217,82 @@ class MisoCapacity:
 
         return pd.DataFrame(rows, index=list(_SEASONS)).T
 
+    def _build_display_df(
+        self,
+        df: pd.DataFrame,
+        rows_to_show: list[str],
+        int_rows: list[str],
+        dollar_rows: list[str],
+    ) -> pd.DataFrame:
+        """Convert a numeric DataFrame subset to a string DataFrame for display.
+
+        Formats each row according to its type: integer rows use comma-separated
+        integers, dollar rows use ``$`` prefix with no decimal places, and all
+        other rows use two decimal places with comma separators.
+
+        Args:
+            df (pd.DataFrame): Source numeric DataFrame (rows = metrics, cols =
+                seasons).
+            rows_to_show (list[str]): Ordered list of row labels to include in
+                the output.
+            int_rows (list[str]): Row labels to format as integers (e.g. Days).
+            dollar_rows (list[str]): Row labels to format as whole-dollar
+                amounts with a ``$`` prefix (e.g. Revenue).
+
+        Returns:
+            pd.DataFrame: String-typed DataFrame with the same columns as *df*
+            and rows ordered by *rows_to_show*.
+        """
+        subset = df.loc[rows_to_show]
+        result = subset.copy().astype(object)
+        for row in subset.index:
+            for col in subset.columns:
+                val = subset.loc[row, col]
+                if pd.isna(val):
+                    result.loc[row, col] = ""
+                elif row in int_rows:
+                    result.loc[row, col] = f"{int(val):,}"
+                elif row in dollar_rows:
+                    result.loc[row, col] = f"${val:,.0f}"
+                else:
+                    result.loc[row, col] = f"{val:,.2f}"
+        return result
+
     def print_component_table(self, component: str) -> None:
         """Print a formatted per-season results table for a single component.
 
-        Calls :meth:`get_component_table` and prints the result to stdout
-        with a component header and comma-separated numeric formatting.
+        Displays a condensed view of :meth:`get_component_table`: the Class
+        UCAP and Class ISAC rows are replaced by their ratio (UCAP/ISAC), the
+        ZRC row is omitted, Days is shown as a whole integer, and Revenue is
+        shown as a whole-dollar amount.
 
         Args:
             component (str): A component name from :attr:`component_list`.
         """
         table = self.get_component_table(component)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            table.loc["UCAP/ISAC ratio"] = (
+                table.loc["Class UCAP (MW)"] / table.loc["Class ISAC (MW)"]
+            )
+        rows = [
+            "# Hours",
+            "Tier 1 (MW)",
+            "Tier 2 (MW)",
+            "ISAC (MW)",
+            "UCAP/ISAC ratio",
+            "SAC (MW)",
+            "PRA Price ($/MW-day)",
+            "Days",
+            "Revenue ($)",
+        ]
+        display = self._build_display_df(
+            table,
+            rows_to_show=rows,
+            int_rows=["# Hours", "Days"],
+            dollar_rows=["Revenue ($)"],
+        )
         print(f"\n=== {component} ===")
-        print(table.to_string(float_format="{:,.2f}".format))
+        print(display.to_string())
 
     def get_totals_table(self) -> pd.DataFrame:
         """Build a totals table summing capacity and revenue across all components.
@@ -1265,11 +1329,28 @@ class MisoCapacity:
     def print_totals_table(self) -> None:
         """Print a formatted totals table aggregated across all components.
 
-        Calls :meth:`get_totals_table` and prints the result to stdout.
+        Displays a condensed view of :meth:`get_totals_table`: per-component
+        breakdowns (Tier 1, Tier 2, ISAC, Class UCAP, Class ISAC) are omitted
+        because they are not meaningful at the fleet level; SAC and ZRC are
+        shown.  Days is shown as a whole integer and Revenue as a whole-dollar
+        amount.
         """
         table = self.get_totals_table()
+        rows = [
+            "SAC (MW)",
+            "ZRC (MW)",
+            "PRA Price ($/MW-day)",
+            "Days",
+            "Revenue ($)",
+        ]
+        display = self._build_display_df(
+            table,
+            rows_to_show=rows,
+            int_rows=["Days"],
+            dollar_rows=["Revenue ($)"],
+        )
         print("\n=== TOTALS (all components) ===")
-        print(table.to_string(float_format="{:,.2f}".format))
+        print(display.to_string())
 
     def print_all_component_tables(self) -> None:
         """Print per-component tables followed by the fleet totals table.
