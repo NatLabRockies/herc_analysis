@@ -110,10 +110,20 @@ def plot_planning_year_coverage(
 
     df_plot = df.copy()
     df_plot["planning_year"] = _time_to_planning_year(df_plot["time_utc"])
-    py_counts = df_plot.groupby("planning_year").size()
+    # Count *distinct hours* per PY rather than raw rows, since ``df`` may
+    # be sub-hourly (e.g. 5-min Hercules output).  The threshold is
+    # expressed in hours, so row counts would otherwise overstate
+    # coverage by the sample-rate factor.
+    hour_bin = df_plot["time_utc"].dt.floor("h")
+    py_hour_counts = (
+        pd.DataFrame({"planning_year": df_plot["planning_year"], "hour": hour_bin})
+        .drop_duplicates()
+        .groupby("planning_year")
+        .size()
+    )
     complete_pys = sorted(
         int(py)
-        for py, n in py_counts.items()
+        for py, n in py_hour_counts.items()
         if n >= _LOW_HOUR_PLANNING_YEAR_THRESHOLD_HOURS
     )
     is_complete = df_plot["planning_year"].isin(complete_pys)
