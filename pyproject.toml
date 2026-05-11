@@ -14,6 +14,7 @@ dependencies = [
     "plotly>=5.0.0",
     "pyarrow>=20.0.0",
     "matplotlib",
+    "seaborn>=0.13",
     "h5py",
     "timezonefinder>=8.2.4",
 ]
