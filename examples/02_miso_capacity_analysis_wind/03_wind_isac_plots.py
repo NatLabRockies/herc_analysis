@@ -37,6 +37,8 @@ mc = MisoCapacity(
     df=df_raw,
     zone=ZONE,
     interconnect_limit=INTERCONNECT_LIMIT_KW,
+    verbose=True,
+    remove_low_hour_planning_years=True,
 )
 
 COMPONENT = "wind_farm.power"

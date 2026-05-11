@@ -768,7 +768,9 @@ class MisoCapacity:
             )
             print(
                 f"[MisoCapacity] dropping {len(dropped)} planning year(s) "
-                f"with < {threshold_hours} hours: {dropped}"
+                f"with < {threshold_hours} hours: {dropped}\n"
+                f"  - Startdate moved from {df.iloc[0]['time_utc']} to {df.loc[keep_mask].iloc[0]['time_utc']}\n"
+                f"  - Enddate moved from {df.iloc[-1]['time_utc']} to {df.loc[keep_mask].iloc[-1]['time_utc']}\n"
             )
         return df.loc[keep_mask].reset_index(drop=True)
 
