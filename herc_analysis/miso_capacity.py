@@ -63,15 +63,15 @@ def _coerce_to_bool_mask(series: pd.Series, column_name: str) -> pd.Series:
 def _time_to_planning_year(timestamps: pd.Series) -> pd.Series:
     """Map UTC timestamps to MISO planning-year codes (e.g. ``2223``).
 
-    The planning year runs Sept Y -> Aug Y+1.  In MISO's reference table
-    the boundary is Sept 1 EST = Sept 1 05:00 UTC; for the purposes of
-    this helper we use the simpler UTC month boundary, which is correct
-    everywhere except a 5-hour window on Sept 1.  The helper is intended
-    only for the standalone coverage plot, where exact-hour fidelity is
-    not required.
+    The planning year runs Sept 1 00:00 EST -> Sept 1 00:00 EST of the
+    following year, i.e. Sept 1 05:00 UTC -> Sept 1 05:00 UTC.  EST is a
+    fixed UTC-5 offset (no DST) for MISO planning-year accounting, so we
+    shift the UTC timestamps by -5 hours before extracting the calendar
+    year/month and applying the Sept boundary.
     """
-    years = timestamps.dt.year
-    months = timestamps.dt.month
+    est = timestamps - pd.Timedelta(hours=5)
+    years = est.dt.year
+    months = est.dt.month
     start = years.where(months >= 9, years - 1)
     return (start % 100) * 100 + (start + 1) % 100
 
@@ -128,6 +128,16 @@ def plot_planning_year_coverage(
     )
     is_complete = df_plot["planning_year"].isin(complete_pys)
 
+    if complete_pys:
+        kept_times = df_plot.loc[is_complete, "time_utc"]
+        print(
+            f"[plot_planning_year_coverage] kept hours span "
+            f"{kept_times.min()} -> {kept_times.max()} UTC "
+            f"(complete PYs: {complete_pys})"
+        )
+    else:
+        print("[plot_planning_year_coverage] no complete planning years found")
+
     fig, axes = plt.subplots(
         len(data_cols), 1, figsize=(11, 2.5 * len(data_cols)), sharex=True
     )
@@ -153,12 +163,14 @@ def plot_planning_year_coverage(
         ax.set_ylabel(col)
         ax.grid(True, alpha=0.3)
 
-        # Arrow + label above the data for each complete PY.
+        # Arrow + label above the data for each complete PY.  The PY
+        # boundary is Sept 1 00:00 EST = Sept 1 05:00 UTC, so anchor the
+        # arrows at 05:00 UTC rather than midnight UTC.
         y_top = ax.get_ylim()[1]
         for py in complete_pys:
             start_year = 2000 + py // 100
-            start = pd.Timestamp(f"{start_year}-09-01", tz="UTC")
-            end = pd.Timestamp(f"{start_year + 1}-09-01", tz="UTC")
+            start = pd.Timestamp(f"{start_year}-09-01 05:00", tz="UTC")
+            end = pd.Timestamp(f"{start_year + 1}-09-01 05:00", tz="UTC")
             ax.annotate(
                 "",
                 xy=(end, y_top),
