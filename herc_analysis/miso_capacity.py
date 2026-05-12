@@ -1245,12 +1245,14 @@ class MisoCapacity:
         rows_to_show: list[str],
         int_rows: list[str],
         dollar_rows: list[str],
+        pct_rows: list[str] | None = None,
     ) -> pd.DataFrame:
         """Convert a numeric DataFrame subset to a string DataFrame for display.
 
         Formats each row according to its type: integer rows use comma-separated
-        integers, dollar rows use ``$`` prefix with no decimal places, and all
-        other rows use two decimal places with comma separators.
+        integers, dollar rows use ``$`` prefix with no decimal places, percent
+        rows use one decimal place with a ``%`` suffix, and all other rows
+        use two decimal places with comma separators.
 
         Args:
             df (pd.DataFrame): Source numeric DataFrame (rows = metrics, cols =
@@ -1260,11 +1262,14 @@ class MisoCapacity:
             int_rows (list[str]): Row labels to format as integers (e.g. Days).
             dollar_rows (list[str]): Row labels to format as whole-dollar
                 amounts with a ``$`` prefix (e.g. Revenue).
+            pct_rows (list[str], optional): Row labels to format as a
+                percentage with one decimal and a ``%`` suffix.
 
         Returns:
             pd.DataFrame: String-typed DataFrame with the same columns as *df*
             and rows ordered by *rows_to_show*.
         """
+        pct_rows = pct_rows or []
         subset = df.loc[rows_to_show]
         result = subset.copy().astype(object)
         for row in subset.index:
@@ -1276,6 +1281,8 @@ class MisoCapacity:
                     result.loc[row, col] = f"{int(val):,}"
                 elif row in dollar_rows:
                     result.loc[row, col] = f"${val:,.0f}"
+                elif row in pct_rows:
+                    result.loc[row, col] = f"{val:.1f}%"
                 else:
                     result.loc[row, col] = f"{val:,.2f}"
         return result
@@ -1285,7 +1292,9 @@ class MisoCapacity:
 
         Displays a condensed view of :meth:`get_component_table`: the Class
         UCAP and Class ISAC rows are replaced by their ratio (UCAP/ISAC), the
-        ZRC row is omitted, Days is shown as a whole integer, and Revenue is
+        ZRC row is omitted, an additional ``SAC / Interconnect (%)`` row
+        showing ``SAC (MW) / interconnect_limit_mw`` as a percentage is
+        inserted after SAC, Days is shown as a whole integer, and Revenue is
         shown as a whole-dollar amount.
 
         Args:
@@ -1296,6 +1305,12 @@ class MisoCapacity:
             table.loc["UCAP/ISAC ratio"] = (
                 table.loc["Class UCAP (MW)"] / table.loc["Class ISAC (MW)"]
             )
+            if self.interconnect_limit_mw > 0:
+                table.loc["SAC / Interconnect (%)"] = (
+                    table.loc["SAC (MW)"] / self.interconnect_limit_mw * 100.0
+                )
+            else:
+                table.loc["SAC / Interconnect (%)"] = float("nan")
         rows = [
             "# Hours",
             "Tier 1 (MW)",
@@ -1303,6 +1318,7 @@ class MisoCapacity:
             "ISAC (MW)",
             "UCAP/ISAC ratio",
             "SAC (MW)",
+            "SAC / Interconnect (%)",
             "PRA Price ($/MW-day)",
             "Days",
             "Revenue ($)",
@@ -1312,6 +1328,7 @@ class MisoCapacity:
             rows_to_show=rows,
             int_rows=["# Hours", "Days"],
             dollar_rows=["Revenue ($)"],
+            pct_rows=["SAC / Interconnect (%)"],
         )
         print(f"\n=== {component} ===")
         print(display.to_string())
