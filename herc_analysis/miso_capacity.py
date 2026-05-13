@@ -1427,6 +1427,14 @@ class MisoCapacity:
             )
         return self.annual_revenue[component]
 
+    def print_annual_revenue(self) -> None:
+        """Print annual revenue by component and the total across all components."""
+        print("\n=== Annual Revenue ===")
+        for component in self.component_list:
+            print(f"  {component}: ${self.annual_revenue[component]:,.2f}")
+        print(f"  {'─' * 40}")
+        print(f"  Total: ${self.get_total_revenue():,.2f}")
+
     def _plot_stacked_bar_by_season(
         self,
         values: dict[tuple[str, str], float],

@@ -38,5 +38,4 @@ mc = MisoCapacity(
 )
 
 mc.print_all_component_tables()
-
-print(f"\nAnnual revenue (wind farm): ${mc.get_total_revenue():,.2f}")
+mc.print_annual_revenue()
