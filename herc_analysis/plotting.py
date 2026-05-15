@@ -149,7 +149,7 @@ class PlotHerculesOutput:
         show_interconnect_limit: bool = True,
         date_range: list[str] | None = None,
         signal_subplots: list[SignalSubplot] | None = None,
-        da_ahead_only: bool = False,
+        da_only: bool = False,
     ):
         """Create interactive Plotly figure.
 
@@ -177,7 +177,7 @@ class PlotHerculesOutput:
                 Defaults to None.
             signal_subplots (list[SignalSubplot], optional): Custom signal
                 subplots. Defaults to None.
-            da_ahead_only (bool, optional): Show only the day-ahead price in
+            da_only (bool, optional): Show only the day-ahead price in
                 the market subplot, with a fill-to-zero shading on the DA
                 line. The RT trace is hidden. Defaults to False.
 
@@ -240,7 +240,7 @@ class PlotHerculesOutput:
                 show_interconnect_limit=show_interconnect_limit,
                 show_negative_ptc_line=show_negative_ptc_line,
                 shade_price_area=shade_price_area,
-                da_ahead_only=da_ahead_only,
+                da_only=da_only,
             )
 
         # Scenario legend for multi-scenario
@@ -618,14 +618,14 @@ class PlotHerculesOutput:
         subplot_to_legend,
         show_negative_ptc_line,
         shade_price_area,
-        da_ahead_only=False,
+        da_only=False,
         **_kw,
     ):
         for i, (df, sname) in enumerate(zip(dfs, self.scenario_names, strict=False)):
             w, a, ms = self._style(i)
             legend_name = subplot_to_legend.get(subplot_row, "legend")
 
-            if da_ahead_only:
+            if da_only:
                 # Fill-to-zero shading on the DA line
                 if i == 0 and "lmp_da" in df.columns:
                     pos_y = df["lmp_da"].clip(lower=0)
