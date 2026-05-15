@@ -1287,6 +1287,61 @@ class MisoCapacity:
                     result.loc[row, col] = f"{val:,.2f}"
         return result
 
+    def _add_annual_column(self, table: pd.DataFrame) -> pd.DataFrame:
+        """Append an ``"Annual"`` column summarizing across seasons.
+
+        - Sum rows: ``# Hours``, ``Days``, ``Revenue ($)``.
+        - Hours-weighted average: all MW capacity metric rows.
+        - Days-weighted average: ``PRA Price ($/MW-day)``.
+        - NaN seasons are excluded from weighted averages.
+
+        Args:
+            table (pd.DataFrame): Numeric table with seasons as columns and
+                metrics as the index (shape returned by
+                :meth:`get_component_table` or :meth:`get_totals_table`).
+
+        Returns:
+            pd.DataFrame: Copy of *table* with an ``"Annual"`` column appended.
+        """
+        table = table.copy()
+        _sum_rows = {"# Hours", "Days", "Revenue ($)"}
+        _mw_rows = {
+            "Tier 1 (MW)",
+            "Tier 2 (MW)",
+            "ISAC (MW)",
+            "Class UCAP (MW)",
+            "Class ISAC (MW)",
+            "SAC (MW)",
+            "ZRC (MW)",
+        }
+        hours = table.loc["# Hours"] if "# Hours" in table.index else None
+        days = table.loc["Days"] if "Days" in table.index else None
+        annual: dict[str, float] = {}
+        for row in table.index:
+            vals = table.loc[row]
+            if row in _sum_rows:
+                annual[row] = float(vals.sum(skipna=True))
+            elif row in _mw_rows and hours is not None:
+                mask = ~(vals.isna() | hours.isna())
+                if mask.any():
+                    annual[row] = float(
+                        (vals[mask] * hours[mask]).sum() / hours[mask].sum()
+                    )
+                else:
+                    annual[row] = float("nan")
+            elif row == "PRA Price ($/MW-day)" and days is not None:
+                mask = ~(vals.isna() | days.isna())
+                if mask.any():
+                    annual[row] = float(
+                        (vals[mask] * days[mask]).sum() / days[mask].sum()
+                    )
+                else:
+                    annual[row] = float("nan")
+            else:
+                annual[row] = float("nan")
+        table["Annual"] = pd.Series(annual)
+        return table
+
     def print_component_table(self, component: str) -> None:
         """Print a formatted per-season results table for a single component.
 
@@ -1300,7 +1355,7 @@ class MisoCapacity:
         Args:
             component (str): A component name from :attr:`component_list`.
         """
-        table = self.get_component_table(component)
+        table = self._add_annual_column(self.get_component_table(component))
         with np.errstate(divide="ignore", invalid="ignore"):
             table.loc["UCAP/ISAC ratio"] = (
                 table.loc["Class UCAP (MW)"] / table.loc["Class ISAC (MW)"]
@@ -1374,7 +1429,7 @@ class MisoCapacity:
         shown.  Days is shown as a whole integer and Revenue as a whole-dollar
         amount.
         """
-        table = self.get_totals_table()
+        table = self._add_annual_column(self.get_totals_table())
         rows = [
             "SAC (MW)",
             "ZRC (MW)",
@@ -1400,6 +1455,105 @@ class MisoCapacity:
         for component in self.component_list:
             self.print_component_table(component)
         self.print_totals_table()
+
+    def get_capacity_report(
+        self,
+    ) -> dict[str, "dict[str, pd.DataFrame] | pd.DataFrame"]:
+        """Build a structured capacity report with seasonal and annual data.
+
+        Returns numeric DataFrames (not display strings) for each component
+        and for fleet totals.  Each DataFrame has one column per MISO season
+        plus an ``"Annual"`` summary column.
+
+        Per-component DataFrames include the two derived rows computed by
+        :meth:`print_component_table` — ``UCAP/ISAC ratio`` and
+        ``SAC / Interconnect (%)`` — with Annual values falling out naturally
+        from the base metric columns.
+
+        Returns:
+            dict: A dict with two keys:
+
+            - ``"components"``: :class:`dict` mapping component name →
+              ``pd.DataFrame`` (11 base rows + 2 derived rows × 4 seasons +
+              Annual).
+            - ``"totals"``: ``pd.DataFrame`` summed across all components
+              (11 base rows × 4 seasons + Annual).
+        """
+        component_tables: dict[str, pd.DataFrame] = {}
+        for component in self.component_list:
+            table = self._add_annual_column(self.get_component_table(component))
+            with np.errstate(divide="ignore", invalid="ignore"):
+                table.loc["UCAP/ISAC ratio"] = (
+                    table.loc["Class UCAP (MW)"] / table.loc["Class ISAC (MW)"]
+                )
+                if self.interconnect_limit_mw > 0:
+                    table.loc["SAC / Interconnect (%)"] = (
+                        table.loc["SAC (MW)"] / self.interconnect_limit_mw * 100.0
+                    )
+                else:
+                    table.loc["SAC / Interconnect (%)"] = float("nan")
+            component_tables[component] = table
+        totals = self._add_annual_column(self.get_totals_table())
+        return {"components": component_tables, "totals": totals}
+
+    def write_capacity_report(self, filepath: "str | Path") -> None:
+        """Write a formatted capacity report to a text file.
+
+        The report mirrors :meth:`print_all_component_tables` with an added
+        ``"Annual"`` column: one section per component followed by a fleet
+        totals section.  Use :meth:`get_capacity_report` for programmatic
+        access to the same data as numeric DataFrames.
+
+        Args:
+            filepath (str | Path): Destination path for the text file.
+                Created or overwritten.
+        """
+        report = self.get_capacity_report()
+        comp_rows = [
+            "# Hours",
+            "Tier 1 (MW)",
+            "Tier 2 (MW)",
+            "ISAC (MW)",
+            "UCAP/ISAC ratio",
+            "SAC (MW)",
+            "SAC / Interconnect (%)",
+            "PRA Price ($/MW-day)",
+            "Days",
+            "Revenue ($)",
+        ]
+        totals_rows = [
+            "SAC (MW)",
+            "ZRC (MW)",
+            "PRA Price ($/MW-day)",
+            "Days",
+            "Revenue ($)",
+        ]
+        lines: list[str] = [
+            "MisoCapacity Capacity Report",
+            f"Zone: {self.zone}  |  Interconnect Limit: {self.interconnect_limit_mw} MW",
+            "",
+        ]
+        for component, table in report["components"].items():
+            display = self._build_display_df(
+                table,
+                rows_to_show=comp_rows,
+                int_rows=["# Hours", "Days"],
+                dollar_rows=["Revenue ($)"],
+                pct_rows=["SAC / Interconnect (%)"],
+            )
+            lines.append(f"=== Component: {component} ===")
+            lines.append(display.to_string())
+            lines.append("")
+        display_totals = self._build_display_df(
+            report["totals"],
+            rows_to_show=totals_rows,
+            int_rows=["Days"],
+            dollar_rows=["Revenue ($)"],
+        )
+        lines.append("=== TOTALS (all components) ===")
+        lines.append(display_totals.to_string())
+        lines.append("")
+        Path(filepath).write_text("\n".join(lines))
 
     def get_total_revenue(self) -> float:
         """Return the total annual revenue summed across all components.
