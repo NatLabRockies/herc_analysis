@@ -149,6 +149,7 @@ class PlotHerculesOutput:
         show_interconnect_limit: bool = True,
         date_range: list[str] | None = None,
         signal_subplots: list[SignalSubplot] | None = None,
+        da_ahead_only: bool = False,
     ):
         """Create interactive Plotly figure.
 
@@ -176,6 +177,9 @@ class PlotHerculesOutput:
                 Defaults to None.
             signal_subplots (list[SignalSubplot], optional): Custom signal
                 subplots. Defaults to None.
+            da_ahead_only (bool, optional): Show only the day-ahead price in
+                the market subplot, with a fill-to-zero shading on the DA
+                line. The RT trace is hidden. Defaults to False.
 
         Returns:
             plotly.graph_objects.Figure: The figure.
@@ -236,6 +240,7 @@ class PlotHerculesOutput:
                 show_interconnect_limit=show_interconnect_limit,
                 show_negative_ptc_line=show_negative_ptc_line,
                 shade_price_area=shade_price_area,
+                da_ahead_only=da_ahead_only,
             )
 
         # Scenario legend for multi-scenario
@@ -613,13 +618,68 @@ class PlotHerculesOutput:
         subplot_to_legend,
         show_negative_ptc_line,
         shade_price_area,
+        da_ahead_only=False,
         **_kw,
     ):
         for i, (df, sname) in enumerate(zip(dfs, self.scenario_names, strict=False)):
             w, a, ms = self._style(i)
+            legend_name = subplot_to_legend.get(subplot_row, "legend")
+
+            if da_ahead_only:
+                # Fill-to-zero shading on the DA line
+                if i == 0 and "lmp_da" in df.columns:
+                    pos_y = df["lmp_da"].clip(lower=0)
+                    fig.add_trace(
+                        go.Scatter(
+                            x=df[time_col],
+                            y=pos_y,
+                            mode="lines",
+                            fill="tozeroy",
+                            name="Positive DA Price",
+                            line={"color": "rgba(0,128,0,0)", "width": 0},
+                            fillcolor="rgba(0,255,0,0.2)",
+                            showlegend=False,
+                            hoverinfo="skip",
+                            legend=legend_name,
+                        ),
+                        row=subplot_row,
+                        col=1,
+                    )
+                    neg_y = df["lmp_da"].clip(upper=0)
+                    fig.add_trace(
+                        go.Scatter(
+                            x=df[time_col],
+                            y=neg_y,
+                            mode="lines",
+                            fill="tozeroy",
+                            name="Negative DA Price",
+                            line={"color": "rgba(128,0,0,0)", "width": 0},
+                            fillcolor="rgba(255,0,0,0.2)",
+                            showlegend=False,
+                            hoverinfo="skip",
+                            legend=legend_name,
+                        ),
+                        row=subplot_row,
+                        col=1,
+                    )
+                da_label = f"{sname} - DA" if self.is_multi_scenario else "DA Price"
+                self._trace(
+                    fig,
+                    df,
+                    time_col,
+                    "lmp_da",
+                    da_label,
+                    INFRASTRUCTURE_COLORS["market_da"],
+                    subplot_row,
+                    subplot_to_legend,
+                    w,
+                    a,
+                    ms,
+                    "DA: %{y:.2f} $/MWh<extra></extra>",
+                )
+                continue
 
             if shade_price_area and i == 0:
-                legend_name = subplot_to_legend.get(subplot_row, "legend")
                 pos_y = df["lmp_rt"].clip(lower=0)
                 fig.add_trace(
                     go.Scatter(
