@@ -1912,7 +1912,6 @@ class MisoCapacity:
             )
             ax.axhline(
                 self.isac_mw[key],
-                color=season_color[season],
                 ls="-",
                 lw=3,
                 color="seagreen",
