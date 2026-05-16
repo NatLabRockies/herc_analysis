@@ -1914,7 +1914,8 @@ class MisoCapacity:
                 self.isac_mw[key],
                 color=season_color[season],
                 ls="-",
-                lw=2,
+                lw=3,
+                color="seagreen",
                 label=f"ISAC  ({self.isac_mw[key]:.1f} MW)",
             )
             if aaoc_value is not None:
