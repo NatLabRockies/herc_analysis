@@ -60,7 +60,6 @@ class OutputAnalysis:
             df = self._process_component(df, comp)
 
         df = self._finalize_columns(df)
-        df = self._compute_category_aggregates(df)
         self.df = self._compute_plant_level_metrics(df)
 
         print("Data loaded into pandas dataframe for analysis...")
@@ -168,6 +167,22 @@ class OutputAnalysis:
                 "mean"
             )
 
+        # Plant-level locally generated power (kW -> MW). Used to detect when
+        # local generation exceeds the interconnect so storage charging from
+        # that excess can be priced at $0/MWh instead of LMP.
+        if "plant.locally_generated_power" in df.columns:
+            df["plant_locally_generated_power_mw"] = (
+                df["plant.locally_generated_power"] / 1000.0
+            )
+        else:
+            print(
+                "Warning: 'plant.locally_generated_power' not found in H5; "
+                "skipping excess-charging cost correction. Storage charging "
+                "will be priced at LMP for all energy, which may overstate "
+                "charging cost when local generation exceeds the "
+                "interconnect."
+            )
+
         return df
 
     # ------------------------------------------------------------------
@@ -207,6 +222,21 @@ class OutputAnalysis:
         df[f"{name}_revenue_rt"] = df["lmp_rt"] * df[f"{name}_energy_mwh"]
         df[f"{name}_revenue_da"] = df["lmp_da"] * df[f"{name}_energy_mwh"]
 
+        # Sanity baseline for every component: revenue as if every MWh were
+        # priced at LMP. For generators, the excess-generation-revenue
+        # correction below will reduce {name}_revenue_rt/_da to reflect that
+        # generation above the interconnect is not delivered to the grid.
+        # The baselines are deliberately *not* modified by any correction.
+        df[f"{name}_revenue_rt_if_all_paid"] = df[f"{name}_revenue_rt"]
+        df[f"{name}_revenue_da_if_all_paid"] = df[f"{name}_revenue_da"]
+
+        if comp.category == "generator":
+            # Diagnostics populated by
+            # _apply_excess_generation_revenue_correction.
+            df[f"{name}_excess_local_generation_mw"] = 0.0
+            df[f"{name}_revenue_rt_excess_loss"] = 0.0
+            df[f"{name}_revenue_da_excess_loss"] = 0.0
+
         if comp.category == "storage":
             df[f"{name}_revenue_rt_discharge"] = np.where(
                 df[f"{name}_energy_mwh"] > 0, df[f"{name}_revenue_rt"], 0
@@ -214,6 +244,28 @@ class OutputAnalysis:
             df[f"{name}_revenue_rt_charge"] = np.where(
                 df[f"{name}_energy_mwh"] < 0, df[f"{name}_revenue_rt"], 0
             )
+            df[f"{name}_revenue_da_discharge"] = np.where(
+                df[f"{name}_energy_mwh"] > 0, df[f"{name}_revenue_da"], 0
+            )
+            df[f"{name}_revenue_da_charge"] = np.where(
+                df[f"{name}_energy_mwh"] < 0, df[f"{name}_revenue_da"], 0
+            )
+
+            # Sanity baseline: charge cost as if every MWh were paid at LMP.
+            # These columns are never modified by the excess-charge correction
+            # so users can compare 'paid' vs 'if all paid' to see the value of
+            # internal (excess-absorbed) charging.
+            df[f"{name}_revenue_rt_charge_if_all_paid"] = df[
+                f"{name}_revenue_rt_charge"
+            ]
+            df[f"{name}_revenue_da_charge_if_all_paid"] = df[
+                f"{name}_revenue_da_charge"
+            ]
+
+            # Diagnostics populated by _apply_excess_charge_correction.
+            df[f"{name}_excess_absorbed_mw"] = 0.0
+            df[f"{name}_revenue_rt_charge_savings"] = 0.0
+            df[f"{name}_revenue_da_charge_savings"] = 0.0
 
             soc_col = f"{name}.soc"
             if soc_col in df.columns:
@@ -242,6 +294,8 @@ class OutputAnalysis:
         keep: list[str] = ["time", "lmp_rt", "lmp_da", "lmp_rt_hourly"]
         if "time_utc" in df.columns:
             keep.append("time_utc")
+        if "plant_locally_generated_power_mw" in df.columns:
+            keep.append("plant_locally_generated_power_mw")
 
         for comp in self.components:
             name = comp.name
@@ -251,11 +305,26 @@ class OutputAnalysis:
                 f"{name}_energy_mwh",
                 f"{name}_revenue_rt",
                 f"{name}_revenue_da",
+                f"{name}_revenue_rt_if_all_paid",
+                f"{name}_revenue_da_if_all_paid",
             ]
+            if comp.category == "generator":
+                derived += [
+                    f"{name}_excess_local_generation_mw",
+                    f"{name}_revenue_rt_excess_loss",
+                    f"{name}_revenue_da_excess_loss",
+                ]
             if comp.category == "storage":
                 derived += [
                     f"{name}_revenue_rt_discharge",
                     f"{name}_revenue_rt_charge",
+                    f"{name}_revenue_da_discharge",
+                    f"{name}_revenue_da_charge",
+                    f"{name}_revenue_rt_charge_if_all_paid",
+                    f"{name}_revenue_da_charge_if_all_paid",
+                    f"{name}_revenue_rt_charge_savings",
+                    f"{name}_revenue_da_charge_savings",
+                    f"{name}_excess_absorbed_mw",
                     f"{name}_soc",
                 ]
             keep.extend(c for c in derived if c in df.columns)
@@ -273,6 +342,151 @@ class OutputAnalysis:
     # ------------------------------------------------------------------
     # Category and plant aggregates
     # ------------------------------------------------------------------
+
+    def _apply_excess_charge_correction(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Zero out charging cost for storage absorbing locally-generated excess.
+
+        When ``plant_locally_generated_power_mw`` exceeds ``interconnect_mw``,
+        the excess would be curtailed if not absorbed by storage. Any portion
+        of storage charging that absorbs this excess should be priced at
+        $0/MWh (RT and DA) rather than at the prevailing LMP.
+
+        For each row, the excess is allocated across charging storage
+        components proportionally to their charging power. Per-component
+        ``_revenue_rt``, ``_revenue_da``, ``_revenue_rt_charge``, and
+        ``_revenue_da_charge`` columns are reduced (charging cost moves
+        toward zero). The ``_revenue_*_charge_if_all_paid`` baselines created
+        in ``_process_component`` are deliberately *not* modified, so users
+        can compare paid vs. as-if-all-paid charging cost.
+
+        The plant-level diagnostic ``excess_local_generation_mw`` and
+        per-storage ``{name}_excess_absorbed_mw`` and
+        ``{name}_revenue_*_charge_savings`` columns are populated here.
+
+        No-ops cleanly when ``plant_locally_generated_power_mw`` is missing,
+        no storage components exist, or no excess is observed.
+
+        Args:
+            df (pd.DataFrame): Dataframe with per-component power and revenue
+                columns already computed.
+
+        Returns:
+            pd.DataFrame: Dataframe with corrected storage revenue columns
+                and excess diagnostics.
+        """
+        df["excess_local_generation_mw"] = 0.0
+
+        if "plant_locally_generated_power_mw" not in df.columns:
+            return df
+        if not self.storage:
+            return df
+
+        excess = (df["plant_locally_generated_power_mw"] - self.interconnect_mw).clip(
+            lower=0
+        )
+        df["excess_local_generation_mw"] = excess
+
+        if not (excess > 0).any():
+            return df
+
+        # Per-storage charging power (MW, positive when charging).
+        charge_mw_by_name = {
+            name: (-df[f"{name}_power_mw"]).clip(lower=0) for name in self.storage
+        }
+        total_charge_mw = sum(charge_mw_by_name.values())
+
+        # Allocation scale per row: fraction of each storage's charging that
+        # is absorbed from excess local generation. With proportional sharing,
+        # each component absorbs charge_mw_i * scale, where
+        # scale = min(1, excess / total_charge).
+        scale = (
+            (excess / total_charge_mw.replace(0, np.nan)).clip(upper=1.0).fillna(0.0)
+        )
+
+        energy_per_mw = self.dt / 3600.0
+
+        for name in self.storage:
+            absorbed_mw = charge_mw_by_name[name] * scale
+            savings_rt = df["lmp_rt"] * absorbed_mw * energy_per_mw
+            savings_da = df["lmp_da"] * absorbed_mw * energy_per_mw
+
+            df[f"{name}_excess_absorbed_mw"] = absorbed_mw
+            df[f"{name}_revenue_rt_charge_savings"] = savings_rt
+            df[f"{name}_revenue_da_charge_savings"] = savings_da
+
+            # Reduce charging cost (move toward zero) on both the
+            # split charge column and the total component revenue column.
+            df[f"{name}_revenue_rt_charge"] = (
+                df[f"{name}_revenue_rt_charge"] + savings_rt
+            )
+            df[f"{name}_revenue_da_charge"] = (
+                df[f"{name}_revenue_da_charge"] + savings_da
+            )
+            df[f"{name}_revenue_rt"] = df[f"{name}_revenue_rt"] + savings_rt
+            df[f"{name}_revenue_da"] = df[f"{name}_revenue_da"] + savings_da
+
+        return df
+
+    def _apply_excess_generation_revenue_correction(
+        self, df: pd.DataFrame
+    ) -> pd.DataFrame:
+        """Reduce generator revenue for any locally-generated power above the interconnect.
+
+        When ``plant_locally_generated_power_mw`` exceeds ``interconnect_mw``,
+        the excess is not delivered to the grid -- it is either curtailed or
+        absorbed by storage. Either way, generators should not be paid for
+        the excess MWh. The plant-level ``excess_local_generation_mw`` is
+        allocated proportionally across generators by their per-row power
+        share, mirroring the storage charging fix.
+
+        Per-generator ``_revenue_rt`` and ``_revenue_da`` are reduced in
+        place; the ``_revenue_*_if_all_paid`` baselines from
+        ``_process_component`` are deliberately left untouched.
+
+        No-ops cleanly when ``excess_local_generation_mw`` is missing/zero
+        or when there are no generators.
+
+        Args:
+            df (pd.DataFrame): Dataframe with per-component power and revenue
+                columns plus ``excess_local_generation_mw``.
+
+        Returns:
+            pd.DataFrame: Dataframe with corrected generator revenue columns
+                and per-generator excess diagnostics.
+        """
+        if "excess_local_generation_mw" not in df.columns:
+            return df
+        if not self.generators:
+            return df
+
+        excess = df["excess_local_generation_mw"]
+        if not (excess > 0).any():
+            return df
+
+        # Per-generator power (clip negatives so a momentarily-negative
+        # generator can't flip the proportional allocation).
+        gen_mw_by_name = {
+            name: df[f"{name}_power_mw"].clip(lower=0) for name in self.generators
+        }
+        total_gen_mw = sum(gen_mw_by_name.values())
+
+        # Allocation share per row: gen_i / total_gen.
+        share = (1.0 / total_gen_mw.replace(0, np.nan)).fillna(0.0)
+        energy_per_mw = self.dt / 3600.0
+
+        for name in self.generators:
+            gen_excess_mw = gen_mw_by_name[name] * excess * share
+            loss_rt = df["lmp_rt"] * gen_excess_mw * energy_per_mw
+            loss_da = df["lmp_da"] * gen_excess_mw * energy_per_mw
+
+            df[f"{name}_excess_local_generation_mw"] = gen_excess_mw
+            df[f"{name}_revenue_rt_excess_loss"] = loss_rt
+            df[f"{name}_revenue_da_excess_loss"] = loss_da
+
+            df[f"{name}_revenue_rt"] = df[f"{name}_revenue_rt"] - loss_rt
+            df[f"{name}_revenue_da"] = df[f"{name}_revenue_da"] - loss_da
+
+        return df
 
     def _compute_category_aggregates(self, df: pd.DataFrame) -> pd.DataFrame:
         """Sum per-component power/energy/revenue into per-category totals.
@@ -313,8 +527,34 @@ class OutputAnalysis:
         ]
         df["total_plant_power_mw"] = df[power_cols].sum(axis=1) if power_cols else 0.0
         df["total_plant_energy_mwh"] = df["total_plant_power_mw"] * self.dt / 3600
-        df["total_plant_revenue_rt"] = df["lmp_rt"] * df["total_plant_energy_mwh"]
-        df["total_plant_revenue_da"] = df["lmp_da"] * df["total_plant_energy_mwh"]
+
+        # Apply the excess-local-generation charging cost correction before
+        # computing category aggregates and plant-level revenue, so all sums
+        # reflect the corrected per-component revenue columns.
+        df = self._apply_excess_charge_correction(df)
+        df = self._apply_excess_generation_revenue_correction(df)
+
+        df = self._compute_category_aggregates(df)
+
+        # Plant-level revenue is the sum of per-component revenue. This stays
+        # consistent with the excess-charge correction above (otherwise it
+        # would double-count the LMP-priced charging energy that was waived).
+        rev_rt_cols = [
+            f"{c.name}_revenue_rt"
+            for c in self.components
+            if f"{c.name}_revenue_rt" in df.columns
+        ]
+        rev_da_cols = [
+            f"{c.name}_revenue_da"
+            for c in self.components
+            if f"{c.name}_revenue_da" in df.columns
+        ]
+        df["total_plant_revenue_rt"] = (
+            df[rev_rt_cols].sum(axis=1) if rev_rt_cols else 0.0
+        )
+        df["total_plant_revenue_da"] = (
+            df[rev_da_cols].sum(axis=1) if rev_da_cols else 0.0
+        )
 
         df["surplus_capacity_mw"] = self.interconnect_mw - df["total_plant_power_mw"]
         df["surplus_capacity_energy_mwh"] = df["surplus_capacity_mw"] * self.dt / 3600

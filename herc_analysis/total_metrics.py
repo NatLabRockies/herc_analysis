@@ -127,7 +127,21 @@ class TotalMetrics:
                 "energy_mwh": energy,
                 "revenue_rt_k": rev_rt / 1e3,
                 "revenue_da_k": rev_da / 1e3,
+                "revenue_rt_if_all_paid_k": (
+                    df[f"{name}_revenue_rt_if_all_paid"].sum() / 1e3
+                ),
+                "revenue_da_if_all_paid_k": (
+                    df[f"{name}_revenue_da_if_all_paid"].sum() / 1e3
+                ),
             }
+
+            if comp.category == "generator":
+                comp_metrics["revenue_rt_excess_loss_k"] = (
+                    df[f"{name}_revenue_rt_excess_loss"].sum() / 1e3
+                )
+                comp_metrics["revenue_da_excess_loss_k"] = (
+                    df[f"{name}_revenue_da_excess_loss"].sum() / 1e3
+                )
 
             if comp.category == "storage":
                 discharge = df[df[f"{name}_energy_mwh"] > 0][f"{name}_energy_mwh"].sum()
@@ -139,6 +153,21 @@ class TotalMetrics:
                 )
                 comp_metrics["revenue_rt_charge_k"] = (
                     df[f"{name}_revenue_rt_charge"].sum() / 1e3
+                )
+                comp_metrics["revenue_rt_charge_if_all_paid_k"] = (
+                    df[f"{name}_revenue_rt_charge_if_all_paid"].sum() / 1e3
+                )
+                comp_metrics["revenue_rt_charge_savings_k"] = (
+                    df[f"{name}_revenue_rt_charge_savings"].sum() / 1e3
+                )
+                comp_metrics["revenue_da_charge_k"] = (
+                    df[f"{name}_revenue_da_charge"].sum() / 1e3
+                )
+                comp_metrics["revenue_da_charge_if_all_paid_k"] = (
+                    df[f"{name}_revenue_da_charge_if_all_paid"].sum() / 1e3
+                )
+                comp_metrics["revenue_da_charge_savings_k"] = (
+                    df[f"{name}_revenue_da_charge_savings"].sum() / 1e3
                 )
 
                 comp_metrics.update(self._compute_tb4_metrics(df, oa, name))
@@ -305,12 +334,38 @@ class TotalMetrics:
             print(
                 f"  {name} RT / DA:  {cm['revenue_rt_k']:>10.1f} / {cm['revenue_da_k']:.1f}"
             )
+            if cm["category"] == "generator" and "revenue_rt_excess_loss_k" in cm:
+                print(
+                    f"    RT (paid / if all paid / excess loss): "
+                    f"{cm['revenue_rt_k']:>8.1f} / "
+                    f"{cm['revenue_rt_if_all_paid_k']:.1f} / "
+                    f"{cm['revenue_rt_excess_loss_k']:.1f}"
+                )
+                print(
+                    f"    DA (paid / if all paid / excess loss): "
+                    f"{cm['revenue_da_k']:>8.1f} / "
+                    f"{cm['revenue_da_if_all_paid_k']:.1f} / "
+                    f"{cm['revenue_da_excess_loss_k']:.1f}"
+                )
             if cm["category"] == "storage":
                 print(
                     f"    discharge / charge RT:  "
                     f"{cm['revenue_rt_discharge_k']:>10.1f} / "
                     f"{cm['revenue_rt_charge_k']:.1f}"
                 )
+                if "revenue_rt_charge_if_all_paid_k" in cm:
+                    print(
+                        f"    charge RT (paid / if all paid / savings): "
+                        f"{cm['revenue_rt_charge_k']:>8.1f} / "
+                        f"{cm['revenue_rt_charge_if_all_paid_k']:.1f} / "
+                        f"{cm['revenue_rt_charge_savings_k']:.1f}"
+                    )
+                    print(
+                        f"    charge DA (paid / if all paid / savings): "
+                        f"{cm['revenue_da_charge_k']:>8.1f} / "
+                        f"{cm['revenue_da_charge_if_all_paid_k']:.1f} / "
+                        f"{cm['revenue_da_charge_savings_k']:.1f}"
+                    )
                 if "optimum_tb4_revenue_rt_k" in cm:
                     print(
                         f"    optimum TB4 RT / DA:   "
@@ -456,7 +511,21 @@ class TotalMetrics:
                     "energy_mwh": energy,
                     "revenue_rt_k": rev_rt / 1e3,
                     "revenue_da_k": rev_da / 1e3,
+                    "revenue_rt_if_all_paid_k": (
+                        md[f"{n}_revenue_rt_if_all_paid"].sum() / 1e3
+                    ),
+                    "revenue_da_if_all_paid_k": (
+                        md[f"{n}_revenue_da_if_all_paid"].sum() / 1e3
+                    ),
                 }
+
+                if comp.category == "generator":
+                    cm["revenue_rt_excess_loss_k"] = (
+                        md[f"{n}_revenue_rt_excess_loss"].sum() / 1e3
+                    )
+                    cm["revenue_da_excess_loss_k"] = (
+                        md[f"{n}_revenue_da_excess_loss"].sum() / 1e3
+                    )
 
                 if comp.category == "storage":
                     cm["energy_discharge_mwh"] = md[md[f"{n}_energy_mwh"] > 0][
@@ -469,6 +538,19 @@ class TotalMetrics:
                         md[f"{n}_revenue_rt_discharge"].sum() / 1e3
                     )
                     cm["revenue_rt_charge_k"] = md[f"{n}_revenue_rt_charge"].sum() / 1e3
+                    cm["revenue_rt_charge_if_all_paid_k"] = (
+                        md[f"{n}_revenue_rt_charge_if_all_paid"].sum() / 1e3
+                    )
+                    cm["revenue_rt_charge_savings_k"] = (
+                        md[f"{n}_revenue_rt_charge_savings"].sum() / 1e3
+                    )
+                    cm["revenue_da_charge_k"] = md[f"{n}_revenue_da_charge"].sum() / 1e3
+                    cm["revenue_da_charge_if_all_paid_k"] = (
+                        md[f"{n}_revenue_da_charge_if_all_paid"].sum() / 1e3
+                    )
+                    cm["revenue_da_charge_savings_k"] = (
+                        md[f"{n}_revenue_da_charge_savings"].sum() / 1e3
+                    )
 
                 mm["components"][n] = cm
 
