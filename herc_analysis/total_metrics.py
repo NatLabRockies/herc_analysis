@@ -171,6 +171,7 @@ class TotalMetrics:
                 )
 
                 comp_metrics.update(self._compute_tb4_metrics(df, oa, name))
+                comp_metrics.update(self._compute_mileage_metrics(df, oa, name))
 
             metrics["components"][name] = comp_metrics
 
@@ -266,6 +267,38 @@ class TotalMetrics:
             "optimum_tb4_revenue_da_k": daily_tb4_da.sum() * energy_cap_mwh / 1e3,
         }
 
+    @staticmethod
+    def _compute_mileage_metrics(df, oa, name: str) -> dict:
+        """Compute battery mileage (total absolute SOC distance travelled).
+
+        Mileage is the cumulative absolute change in state of charge over the
+        simulation, a proxy for cycling / throughput. It is reported both in
+        SOC units (sum of absolute step-to-step SOC differences) and in energy
+        units (SOC mileage scaled by the energy capacity).
+
+        Args:
+            df (pd.DataFrame): Scenario dataframe.
+            oa: OutputAnalysis object.
+            name (str): Component name.
+
+        Returns:
+            dict: Mileage metric entries (``battery_mileage_soc`` and
+                ``battery_mileage_mwh``).
+        """
+        soc_col = f"{name}_soc"
+        if soc_col not in df.columns:
+            return {"battery_mileage_soc": 0.0, "battery_mileage_mwh": 0.0}
+
+        mileage_soc = float(df[soc_col].diff().abs().sum())
+        # energy_capacity is stored in kWh in the Hercules H5 dict; convert to
+        # MWh so the energy-units mileage is consistent with energy_mwh.
+        energy_cap_mwh = oa.h_dict.get(name, {}).get("energy_capacity", 0) / 1000.0
+
+        return {
+            "battery_mileage_soc": mileage_soc,
+            "battery_mileage_mwh": mileage_soc * energy_cap_mwh,
+        }
+
     # ------------------------------------------------------------------
     # Surplus / ideal capacity helpers
     # ------------------------------------------------------------------
@@ -322,6 +355,12 @@ class TotalMetrics:
                     f"{cm['energy_discharge_mwh']:>12,.2f} / "
                     f"{cm['energy_charge_mwh']:>,.2f}"
                 )
+                if "battery_mileage_soc" in cm:
+                    print(
+                        f"    mileage (SOC / MWh):            "
+                        f"{cm['battery_mileage_soc']:>12,.2f} / "
+                        f"{cm['battery_mileage_mwh']:>,.2f}"
+                    )
         print(f"{'  Plant Total':<35}{metrics['plant']['total_energy_mwh']:>12,.2f}")
 
         print("=" * w)
@@ -551,6 +590,7 @@ class TotalMetrics:
                     cm["revenue_da_charge_savings_k"] = (
                         md[f"{n}_revenue_da_charge_savings"].sum() / 1e3
                     )
+                    cm.update(self._compute_mileage_metrics(md, oa, n))
 
                 mm["components"][n] = cm
 
