@@ -17,6 +17,7 @@ dependencies = [
     "seaborn>=0.13",
     "h5py",
     "timezonefinder>=8.2.4",
+    "great-tables>=0.12",
 ]
 
 [project.optional-dependencies]
