@@ -13,4 +13,5 @@ from .input_analysis import plot_price_donut as plot_price_donut
 from .input_analysis import summary_stats as summary_stats
 from .output_analysis import OutputAnalysis as OutputAnalysis
 from .plotting import PlotHerculesOutput as PlotHerculesOutput
+from .scenario_compare import ScenarioComparison as ScenarioComparison
 from .total_metrics import TotalMetrics as TotalMetrics
