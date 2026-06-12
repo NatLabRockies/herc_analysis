@@ -1841,13 +1841,6 @@ class MisoCapacity:
 
         seasons = [s for s in _SEASONS if (s, component) in self.isac_mw]
 
-        season_color = {
-            "summer": "tab:orange",
-            "fall": "tab:brown",
-            "winter": "tab:blue",
-            "spring": "tab:green",
-        }
-
         if axes is None:
             fig, axes = plt.subplots(
                 1,
