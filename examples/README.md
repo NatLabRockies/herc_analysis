@@ -35,3 +35,15 @@ metrics, and multi-scenario interactive overlays.
 cd examples/01_two_scenario_analysis
 python example_analysis.py
 ```
+
+## 05 -- Cross-Scenario Comparison
+
+Uses `ScenarioComparison` to compare metrics across an arbitrary number of
+cases from tidy per-case `metrics.csv` files: select metrics and a scope,
+choose `annual` or `total` scaling, and render to CSV, a `great_tables` table,
+or a per-metric plot.
+
+```bash
+cd examples/05_scenario_comparison
+python example_scenario_compare.py
+```
