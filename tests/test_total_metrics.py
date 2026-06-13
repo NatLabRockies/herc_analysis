@@ -78,6 +78,37 @@ def test_storage_metrics():
     assert "revenue_rt_charge_k" in batt
 
 
+def test_battery_mileage_metrics_present_and_correct():
+    """Battery mileage equals the summed absolute SOC step differences."""
+    oa = OutputAnalysis("hercules_output.h5")
+    tm = TotalMetrics(oa)
+    metrics = tm.compute_metrics(display=False)
+
+    batt = metrics["components"]["battery"]
+    assert "battery_mileage_soc" in batt
+    assert "battery_mileage_mwh" in batt
+
+    expected_soc = oa.df["battery_soc"].diff().abs().sum()
+    np.testing.assert_allclose(batt["battery_mileage_soc"], expected_soc)
+
+    energy_cap_mwh = oa.h_dict["battery"]["energy_capacity"] / 1000.0
+    np.testing.assert_allclose(
+        batt["battery_mileage_mwh"], expected_soc * energy_cap_mwh
+    )
+
+
+def test_battery_mileage_constant_soc_is_zero():
+    """A flat SOC trace yields zero mileage."""
+    oa = OutputAnalysis("hercules_output.h5")
+    tm = TotalMetrics(oa)
+    metrics = tm.compute_metrics(display=False)
+
+    # The test fixture holds SOC constant at 1.0, so mileage must be zero.
+    np.testing.assert_allclose(
+        metrics["components"]["battery"]["battery_mileage_soc"], 0.0
+    )
+
+
 def test_available_metrics():
     """Test that available_metrics returns paths."""
     oa = OutputAnalysis("hercules_output.h5")
