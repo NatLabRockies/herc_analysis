@@ -12,6 +12,20 @@ COMPONENT_TYPE_TO_CATEGORY: dict[str, str] = {
 
 VALID_CATEGORIES = frozenset({"generator", "load", "storage"})
 
+# MISO resource class per Hercules component type. Only types that map to a
+# class in the bundled resource-class CSVs participate in capacity accounting;
+# unmapped types (e.g. loads, playback) are intentionally excluded so they are
+# skipped rather than mis-priced.
+COMPONENT_TYPE_TO_MISO_CLASS: dict[str, str] = {
+    "SolarPySAMPVWatts": "solar",
+    "WindFarm": "wind",
+    "WindFarmSCADAPower": "wind",
+    "BatterySimple": "storage",
+    "BatteryLithiumIon": "storage",
+    "OpenCycleGasTurbine": "gas",
+    "HardCoalSteamTurbine": "coal",
+}
+
 
 @dataclass(frozen=True)
 class ComponentInfo:

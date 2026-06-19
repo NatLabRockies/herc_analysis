@@ -3,6 +3,7 @@ from importlib.metadata import version
 __version__ = version("herc_analysis")
 
 from .constants import COMPONENT_TYPE_TO_CATEGORY as COMPONENT_TYPE_TO_CATEGORY
+from .constants import COMPONENT_TYPE_TO_MISO_CLASS as COMPONENT_TYPE_TO_MISO_CLASS
 from .constants import ComponentInfo as ComponentInfo
 from .constants import SignalSubplot as SignalSubplot
 from .input_analysis import plot_boxplot_by_year as plot_boxplot_by_year
