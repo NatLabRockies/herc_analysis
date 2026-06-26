@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from herc_analysis.timeseries import planning_year as _planning_year
+
 _INPUTS_DIR = Path(__file__).parent / "miso_capacity_inputs"
 RA_HOURS_CSV_PATH = _INPUTS_DIR / "miso_ra_hours.csv"
 PRA_PRICES_CSV_PATH = _INPUTS_DIR / "pra_prices_usd_per_mw_day.csv"
@@ -63,17 +65,11 @@ def _coerce_to_bool_mask(series: pd.Series, column_name: str) -> pd.Series:
 def _time_to_planning_year(timestamps: pd.Series) -> pd.Series:
     """Map UTC timestamps to MISO planning-year codes (e.g. ``2223``).
 
-    The planning year runs Sept 1 00:00 EST -> Sept 1 00:00 EST of the
-    following year, i.e. Sept 1 05:00 UTC -> Sept 1 05:00 UTC.  EST is a
-    fixed UTC-5 offset (no DST) for MISO planning-year accounting, so we
-    shift the UTC timestamps by -5 hours before extracting the calendar
-    year/month and applying the Sept boundary.
+    The planning-year mapping now lives in
+    :func:`herc_analysis.timeseries.planning_year`; this thin wrapper keeps the
+    existing call sites working unchanged.
     """
-    est = timestamps - pd.Timedelta(hours=5)
-    years = est.dt.year
-    months = est.dt.month
-    start = years.where(months >= 9, years - 1)
-    return (start % 100) * 100 + (start + 1) % 100
+    return _planning_year(timestamps)
 
 
 def plot_planning_year_coverage(
