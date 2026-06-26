@@ -43,6 +43,7 @@ Scaling semantics:
 import shutil
 import subprocess
 import sys
+import warnings
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -88,6 +89,12 @@ class ScenarioComparison:
         display_names: Sequence[str] | None = None,
     ):
         """Initialize from a long-format metrics DataFrame."""
+        warnings.warn(
+            "ScenarioComparison is deprecated; use herc_analysis.Comparison "
+            "(the single comparison engine) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         missing = REQUIRED_COLUMNS - set(metrics.columns)
         if missing:
             raise ValueError(f"metrics is missing required columns: {sorted(missing)}")

@@ -34,11 +34,82 @@ from hercules.hercules_output import HerculesOutput
 from herc_analysis import channels, pricing, reducers
 from herc_analysis.components import ComponentInfo, discover_components
 from herc_analysis.io import RunMeta, load_run
+from herc_analysis.metrics import MetricSet
 
 
 def _ch(name: str, signal: str) -> str:
     """Build a derived channel column name: ``{name}__{signal}``."""
     return f"{name}__{signal}"
+
+
+# Long-format export specs: (metric, nested-section, nested-key, unit, scaling).
+# These map the curated numeric metrics onto the canonical MetricSet schema.
+_PLANT_METRIC_SPECS = (
+    ("energy_mwh", "plant", "total_energy_mwh", "MWh", "extensive"),
+    ("capacity_factor", "plant", "capacity_factor", "-", "intensive"),
+    ("revenue_rt", "plant", "total_revenue_rt_k", "k$", "extensive"),
+    ("revenue_da", "plant", "total_revenue_da_k", "k$", "extensive"),
+    (
+        "surplus_capacity_revenue_rt",
+        "plant",
+        "surplus_capacity_revenue_rt_k",
+        "k$",
+        "extensive",
+    ),
+    (
+        "surplus_capacity_revenue_da",
+        "plant",
+        "surplus_capacity_revenue_da_k",
+        "k$",
+        "extensive",
+    ),
+    ("avg_price_rt", "market_metrics", "avg_price_rt", "$/MWh", "intensive"),
+    ("value_factor", "market_metrics", "value_factor", "-", "intensive"),
+)
+
+# (metric, nested-key, unit, scaling) within a component's metric dict.
+_COMPONENT_METRIC_SPECS = (
+    ("energy_mwh", "energy_mwh", "MWh", "extensive"),
+    ("revenue_rt", "revenue_rt_k", "k$", "extensive"),
+    ("revenue_da", "revenue_da_k", "k$", "extensive"),
+)
+_STORAGE_METRIC_SPECS = (
+    ("energy_discharge_mwh", "energy_discharge_mwh", "MWh", "extensive"),
+    ("energy_charge_mwh", "energy_charge_mwh", "MWh", "extensive"),
+    ("battery_mileage_soc", "battery_mileage_soc", "SOC", "extensive"),
+    ("battery_mileage_mwh", "battery_mileage_mwh", "MWh", "extensive"),
+)
+
+
+def _rows_from_nested(nested: dict, *, resolution: str, period: str) -> list[dict]:
+    """Emit long-format rows for one nested metrics dict at one (resolution, period)."""
+    rows: list[dict] = []
+
+    def _row(entity, metric, value, unit, scaling):
+        rows.append(
+            {
+                "entity": entity,
+                "metric": metric,
+                "resolution": resolution,
+                "period": period,
+                "value": value,
+                "unit": unit,
+                "scaling": scaling,
+            }
+        )
+
+    for metric, section, key, unit, scaling in _PLANT_METRIC_SPECS:
+        _row("plant", metric, nested[section][key], unit, scaling)
+
+    for name, cm in nested["components"].items():
+        for metric, key, unit, scaling in _COMPONENT_METRIC_SPECS:
+            _row(name, metric, cm[key], unit, scaling)
+        if cm.get("category") == "storage":
+            for metric, key, unit, scaling in _STORAGE_METRIC_SPECS:
+                if key in cm:
+                    _row(name, metric, cm[key], unit, scaling)
+
+    return rows
 
 
 class Scenario:
@@ -180,6 +251,24 @@ class Scenario:
                 include_tb4=False,
             )
         return out
+
+    @cached_property
+    def metric_set(self) -> MetricSet:
+        """The run's metrics as a canonical long-format :class:`MetricSet`.
+
+        Carries the curated numeric metrics (plant, per-component, market) at
+        ``resolution="total"`` plus, when ``time_utc`` is available, one bucket
+        per month (``resolution="monthly"``). This is the shape ``Comparison``
+        consumes and what ``MetricSet.to_csv`` writes.
+
+        Returns:
+            MetricSet: Long-format metrics for this run.
+        """
+        rows = _rows_from_nested(self.metrics, resolution="total", period="total")
+        if "time_utc" in self.channels.columns:
+            for month, mm in self.monthly_metrics.items():
+                rows.extend(_rows_from_nested(mm, resolution="monthly", period=month))
+        return MetricSet(pd.DataFrame(rows), sim_years=self.meta.sim_years)
 
     # ------------------------------------------------------------------
     # Channel build stages (private)

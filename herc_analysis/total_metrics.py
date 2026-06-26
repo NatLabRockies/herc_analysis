@@ -3,6 +3,7 @@
 import json
 import math
 import pickle
+import warnings
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -32,6 +33,13 @@ class TotalMetrics:
                 Defaults to None.
         """
         if isinstance(output_analysis, list):
+            warnings.warn(
+                "TotalMetrics list-mode (multi-scenario comparison) is "
+                "deprecated; use herc_analysis.Comparison.from_scenarios "
+                "instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
             self.output_analyses = output_analysis
             self.is_multi_scenario = True
             if scenario_names is None:
