@@ -1,19 +1,14 @@
 """Unit tests for the new L1 timeseries primitives.
 
 ``interpolate_df`` / ``add_local_time`` keep their existing coverage in
-``tests/test_utilities.py`` (now exercising the re-exported implementations);
-here we test the newly added primitives plus the move's equivalence.
+``tests/test_utilities.py`` (now importing them from ``herc_analysis.timeseries``);
+here we test the newly added primitives.
 """
 
 import numpy as np
 import pandas as pd
 
-from herc_analysis import reducers, timeseries, utilities
-
-
-def test_utilities_reexports_are_the_moved_functions():
-    assert utilities.interpolate_df is timeseries.interpolate_df
-    assert utilities.add_local_time is timeseries.add_local_time
+from herc_analysis import reducers, timeseries
 
 
 def test_planning_year_sept_boundary():
@@ -31,7 +26,7 @@ def test_planning_year_sept_boundary():
 
 
 def test_planning_year_matches_miso_shim():
-    from herc_analysis.miso_capacity import _time_to_planning_year
+    from herc_analysis.capacity._miso_engine import _time_to_planning_year
 
     times = pd.Series(
         pd.to_datetime(

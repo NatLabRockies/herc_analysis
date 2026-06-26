@@ -1,17 +1,15 @@
 """Example demonstrating basic analysis of a single Hercules scenario.
 
 Uses stored output from HERCULES Example 05 (wind farm + battery storage
-with LMP-based control).
+with LMP-based control). Ported to the refactored API: one ``Scenario`` object
+replaces ``OutputAnalysis`` + ``TotalMetrics``, and ``timeseries_figure`` builds
+the interactive plot.
 """
 
 from pathlib import Path
 
-from herc_analysis import (
-    OutputAnalysis,
-    PlotHerculesOutput,
-    SignalSubplot,
-    TotalMetrics,
-)
+from herc_analysis import Scenario, SignalSubplot
+from herc_analysis.display import timeseries_figure
 
 STORED_DATA = (
     Path(__file__).resolve().parents[2]
@@ -23,22 +21,24 @@ STORED_DATA = (
 
 
 def main():
-    oa = OutputAnalysis(str(STORED_DATA))
+    scenario = Scenario(str(STORED_DATA), name="wind_storage")
 
     print("\nDiscovered components:")
-    for comp in oa.components:
+    for comp in scenario.components:
         print(f"  {comp.name}: type={comp.component_type}, category={comp.category}")
 
-    # Compute and display metrics
-    tm = TotalMetrics(oa)
-    tm.compute_metrics()
-    tm.save_metrics("outputs/metrics.pkl")
+    # Metrics: long-format, human- and machine-friendly (feeds Comparison).
+    scenario.metric_set.to_csv("outputs/metrics.csv")
 
     # Full interactive plot with wind speed, turbine powers, battery SOC,
-    # and battery power subplots
-    plotter = PlotHerculesOutput(oa)
+    # and battery power subplots.
+    plotter = timeseries_figure(scenario)
 
-    turbine_power_cols = oa.get_signal_columns("wind_farm", "turbine_powers")
+    turbine_power_cols = sorted(
+        c
+        for c in scenario.output.df.columns
+        if c.startswith("wind_farm.turbine_powers.")
+    )
 
     plotter.plot_interactive(
         save_file="outputs/single_scenario_full.html",
@@ -66,7 +66,7 @@ def main():
         ],
     )
 
-    # Plant power, battery power vs setpoint, and market
+    # Plant power, battery power vs setpoint, and market.
     plotter.plot_interactive(
         save_file="outputs/single_scenario_market.html",
         plot_dt=60,

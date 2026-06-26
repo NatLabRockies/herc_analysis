@@ -10,7 +10,7 @@ from herc_analysis.capacity import (
     FixedAvailability,
     FromRunAvailability,
 )
-from herc_analysis.miso_capacity import compute_battery_availability
+from herc_analysis.capacity._miso_engine import compute_battery_availability
 
 
 def _frame() -> pd.DataFrame:

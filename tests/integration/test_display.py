@@ -25,7 +25,7 @@ def scenario(tmp_path_factory) -> Scenario:
 
 def test_reexports_are_the_moved_objects():
     from herc_analysis.constants import SignalSubplot
-    from herc_analysis.input_analysis import plot_histogram
+    from herc_analysis.display.input_plots import plot_histogram
 
     assert display.SignalSubplot is SignalSubplot
     assert display.plot_histogram is plot_histogram

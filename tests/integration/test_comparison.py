@@ -94,30 +94,6 @@ def test_table_multi_entity_multiindex(scenarios):
     assert "plant" in entities
 
 
-def test_scenariocomparison_emits_deprecation_warning():
-    df = pd.DataFrame(
-        {
-            "case": ["a"],
-            "scope": ["plant"],
-            "metric": ["energy_mwh"],
-            "value": [1.0],
-            "scaling": ["extensive"],
-            "sim_years": [1.0],
-        }
-    )
-    from herc_analysis.scenario_compare import ScenarioComparison
-
-    with pytest.warns(DeprecationWarning):
-        ScenarioComparison(df)
-
-
-def test_totalmetrics_list_mode_emits_deprecation_warning():
-    from herc_analysis.total_metrics import TotalMetrics
-
-    with pytest.warns(DeprecationWarning):
-        TotalMetrics([object(), object()])
-
-
 def test_missing_required_columns_raises():
     bad = pd.DataFrame({"case": ["a"], "entity": ["plant"]})
     with pytest.raises(ValueError):

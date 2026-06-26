@@ -21,7 +21,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 from herc_analysis import (
-    OutputAnalysis,
+    Scenario,
     plot_boxplot_by_year,
     plot_correlation,
     plot_diurnal,
@@ -29,7 +29,7 @@ from herc_analysis import (
     plot_price_donut,
     summary_stats,
 )
-from herc_analysis.utilities import add_local_time
+from herc_analysis.timeseries import add_local_time
 
 # North Dakota wind farm (MISO Zone 1) — approximate coordinates.
 LATITUDE = 47.0
@@ -46,8 +46,11 @@ OUTPUTS.mkdir(exist_ok=True)
 
 
 def main():
-    oa = OutputAnalysis(str(DATA_H5))
-    df = oa.df[["time_utc", "lmp_rt", "lmp_da", "wind_farm_power_mw"]].copy()
+    scenario = Scenario(str(DATA_H5))
+    ch = scenario.channels
+    df = ch[["time_utc", "lmp_rt", "lmp_da"]].copy()
+    # Channels keep power in kW; rescale to MW for this exploratory analysis.
+    df["wind_farm_power_mw"] = ch["wind_farm__power_kw"] / 1000.0
     df = add_local_time(df, latitude=LATITUDE, longitude=LONGITUDE)
 
     # 1) Donut plots — overall and per-year.

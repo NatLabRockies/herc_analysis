@@ -3,11 +3,17 @@
 Compares stored output from:
   - HERCULES Example 02b (wind farm only, precomputed FLORIS)
   - HERCULES Example 05  (wind farm + battery storage with LMP)
+
+Ported to the refactored API: two ``Scenario`` objects feed the single
+``Comparison`` engine; ``timeseries_figure`` draws the multi-scenario overlay.
 """
 
 from pathlib import Path
 
-from herc_analysis import OutputAnalysis, PlotHerculesOutput, TotalMetrics
+import matplotlib.pyplot as plt
+
+from herc_analysis import Comparison, Scenario
+from herc_analysis.display import timeseries_figure
 
 STORED_DATA_DIR = Path(__file__).resolve().parents[2] / "stored_hercules_output"
 
@@ -25,30 +31,23 @@ SCENARIO_NAMES = ["Wind Only", "Wind + Storage"]
 
 
 def main():
-    oa_wind = OutputAnalysis(str(WIND_ONLY_H5))
-    oa_storage = OutputAnalysis(str(WIND_STORAGE_H5))
+    scenarios = [
+        Scenario(str(WIND_ONLY_H5), name="Wind Only"),
+        Scenario(str(WIND_STORAGE_H5), name="Wind + Storage"),
+    ]
 
-    # Compute and compare metrics across scenarios
-    tm = TotalMetrics(
-        output_analysis=[oa_wind, oa_storage],
-        scenario_names=SCENARIO_NAMES,
-    )
-    tm.compute_metrics()
-    tm.compare_scenarios(include_pct_change=True)
+    # Compare metrics across scenarios with the single Comparison engine.
+    cmp = Comparison.from_scenarios(scenarios)
+    print("\nAnnual plant comparison:")
+    print(cmp.table(["energy_mwh", "capacity_factor", "revenue_rt"], period="annual"))
 
-    # Bar chart comparing total plant energy
-    fig, ax = tm.plot_compare_scenarios(
-        "plant.total_energy_mwh",
-        plot_type="bar",
-        color="steelblue",
-    )
+    # Bar chart comparing total plant energy.
+    fig, _ = cmp.plot("energy_mwh", period="total", color="steelblue")
     fig.savefig("outputs/energy_comparison.png")
+    plt.close(fig)
 
-    # Multi-scenario interactive overlay
-    plotter = PlotHerculesOutput(
-        output_analysis=[oa_wind, oa_storage],
-        scenario_names=SCENARIO_NAMES,
-    )
+    # Multi-scenario interactive overlay.
+    plotter = timeseries_figure(scenarios, scenario_names=SCENARIO_NAMES)
     plotter.plot_interactive(
         plot_dt=10,
         signal_subplots=[

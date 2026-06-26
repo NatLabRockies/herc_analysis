@@ -1,11 +1,11 @@
 import pandas as pd
 from hercules.hybrid_plant import COMPONENT_REGISTRY
 
+from herc_analysis.capacity._miso_engine import RESOURCE_CLASS_UCAP_CSV_PATH
 from herc_analysis.constants import (
     COMPONENT_TYPE_TO_CATEGORY,
     COMPONENT_TYPE_TO_MISO_CLASS,
 )
-from herc_analysis.miso_capacity import RESOURCE_CLASS_UCAP_CSV_PATH
 
 
 def test_miso_class_map_keys_are_registry_types():

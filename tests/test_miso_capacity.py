@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from herc_analysis.miso_capacity import (
+from herc_analysis.capacity._miso_engine import (
     RA_HOURS_CSV_PATH,
     MisoCapacity,
 )

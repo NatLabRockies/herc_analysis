@@ -9,8 +9,8 @@ import pandas as pd
 import pytest
 
 from herc_analysis.capacity import MisoCapacity
+from herc_analysis.capacity._miso_engine import MisoCapacity as LegacyMisoCapacity
 from herc_analysis.comparison import Comparison
-from herc_analysis.miso_capacity import MisoCapacity as LegacyMisoCapacity
 from herc_analysis.scenario import Scenario
 
 REPO = Path(__file__).resolve().parents[2]

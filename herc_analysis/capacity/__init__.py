@@ -7,6 +7,12 @@ MISO DLOL method) and the availability provider classes
 
 from __future__ import annotations
 
+from herc_analysis.capacity._miso_engine import (
+    compute_battery_availability as compute_battery_availability,
+)
+from herc_analysis.capacity._miso_engine import (
+    plot_planning_year_coverage as plot_planning_year_coverage,
+)
 from herc_analysis.capacity.availability import (
     BatteryAvailability as BatteryAvailability,
 )

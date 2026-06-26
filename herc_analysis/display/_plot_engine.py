@@ -8,12 +8,12 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from herc_analysis.colors import (
+from herc_analysis.constants import PTC_PRICE, SignalSubplot
+from herc_analysis.display.colors import (
     INFRASTRUCTURE_COLORS,
     get_component_color,
 )
-from herc_analysis.constants import PTC_PRICE, SignalSubplot
-from herc_analysis.utilities import interpolate_df
+from herc_analysis.timeseries import interpolate_df
 
 
 class PlotHerculesOutput:

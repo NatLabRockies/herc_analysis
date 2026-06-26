@@ -9,7 +9,10 @@ import pandas as pd
 
 from herc_analysis.timeseries import planning_year as _planning_year
 
-_INPUTS_DIR = Path(__file__).parent / "miso_capacity_inputs"
+# The bundled MISO reference CSVs remain at herc_analysis/miso_capacity_inputs/;
+# this module now lives one level deeper (herc_analysis/capacity/), so resolve
+# the inputs directory relative to the package root.
+_INPUTS_DIR = Path(__file__).parent.parent / "miso_capacity_inputs"
 RA_HOURS_CSV_PATH = _INPUTS_DIR / "miso_ra_hours.csv"
 PRA_PRICES_CSV_PATH = _INPUTS_DIR / "pra_prices_usd_per_mw_day.csv"
 RESOURCE_CLASS_UCAP_CSV_PATH = _INPUTS_DIR / "resource_class_ucap_mw.csv"

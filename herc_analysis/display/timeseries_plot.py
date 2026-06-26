@@ -17,7 +17,9 @@ from functools import cached_property
 
 import pandas as pd
 
-from herc_analysis.plotting import PlotHerculesOutput as PlotHerculesOutput
+from herc_analysis.display._plot_engine import (
+    PlotHerculesOutput as PlotHerculesOutput,
+)
 
 
 def _legacy_plot_df(scenario) -> pd.DataFrame:

@@ -16,8 +16,8 @@ Steps:
 
 from pathlib import Path
 
-from herc_analysis import OutputAnalysis
-from herc_analysis.miso_capacity import MisoCapacity, compute_battery_availability
+from herc_analysis import Scenario
+from herc_analysis.capacity import MisoCapacity, compute_battery_availability
 
 DATA_DIR = Path(__file__).parent
 ZONE = 1
@@ -28,8 +28,8 @@ BATTERY_RATED_ENERGY_KWH = 80_000.0  # kWh (80 MWh — 4-hour duration)
 BATTERY_MIN_SOC = 0.0
 ETA_DISCHARGE = 1.0
 
-oa = OutputAnalysis(DATA_DIR / "hercules_output.h5")
-df = oa.df[["time_utc", "wind_farm.power"]].copy()
+oa = Scenario(DATA_DIR / "hercules_output.h5")
+df = oa.output.df[["time_utc", "wind_farm.power"]].copy()
 
 # ── Wind-only baseline ────────────────────────────────────────────────────────
 mc_wind = MisoCapacity(

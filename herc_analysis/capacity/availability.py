@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from herc_analysis.miso_capacity import compute_battery_availability
+from herc_analysis.capacity._miso_engine import compute_battery_availability
 
 
 class FixedAvailability:

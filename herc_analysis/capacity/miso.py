@@ -1,14 +1,13 @@
 """L4 -- ``MisoCapacity``: MISO DLOL seasonal accredited capacity.
 
-This wraps the trusted MISO DLOL engine in ``herc_analysis.miso_capacity`` and
-re-expresses it as a :class:`~herc_analysis.capacity.base.CapacityBase` subclass
-with the design-facing API (``accredit`` / ``revenue`` / ``report`` /
-``to_metrics`` and a ``from_scenario`` constructor that injects availability
-providers). The accreditation math is unchanged -- this layer composes the
-existing, tested staged pipeline rather than reimplementing it, so MISO outputs
-match the current code exactly. (The full in-place relocation of the engine into
-this module happens in the final migration phase, when the old module is
-removed.)
+This composes the trusted MISO DLOL engine (now relocated into the capacity
+package as ``herc_analysis.capacity._miso_engine``) and re-expresses it as a
+:class:`~herc_analysis.capacity.base.CapacityBase` subclass with the design-facing
+API (``accredit`` / ``revenue`` / ``report`` / ``to_metrics`` and a
+``from_scenario`` constructor that injects availability providers). The
+accreditation math is unchanged -- this layer composes the existing, tested
+staged pipeline rather than reimplementing it, so MISO outputs match the
+pre-refactor code exactly.
 """
 
 from __future__ import annotations
@@ -17,9 +16,9 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from herc_analysis.capacity._miso_engine import MisoCapacity as _LegacyMisoCapacity
 from herc_analysis.capacity.base import CapacityBase
 from herc_analysis.constants import COMPONENT_TYPE_TO_MISO_CLASS
-from herc_analysis.miso_capacity import MisoCapacity as _LegacyMisoCapacity
 
 if TYPE_CHECKING:
     from herc_analysis.scenario import Scenario
