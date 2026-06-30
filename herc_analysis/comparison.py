@@ -318,13 +318,19 @@ class Comparison:
 
     @staticmethod
     def _scale(sub: pd.DataFrame, view: str) -> pd.Series:
-        """Convert raw values to the requested view using the scaling tag.
+        """Convert whole-run total values to the requested view via the scaling tag.
 
-        ``extensive`` divides by ``sim_years`` for the ``per_year`` view;
-        ``annual`` multiplies by ``sim_years`` for the ``cumulative`` view;
-        ``intensive`` is never modified.
+        The per_year/cumulative conversion only applies to ``resolution="total"``
+        rows (cumulative totals). Already-bucketed resolutions
+        (``annual`` / ``yearly`` / ``monthly``) are at their stated granularity
+        and are returned unchanged. For total rows: ``extensive`` divides by
+        ``sim_years`` for ``per_year``; ``annual`` multiplies by ``sim_years``
+        for ``cumulative``; ``intensive`` is never modified.
         """
         value = sub["value"].astype(float)
+        if (sub["resolution"] != "total").any():
+            return value
+
         scaling = sub["scaling"]
         sim_years = sub["sim_years"].astype(float)
         out = value.copy()

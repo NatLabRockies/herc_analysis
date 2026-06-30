@@ -68,6 +68,18 @@ def test_total_view_equals_raw_for_extensive(scenarios):
         )
 
 
+def test_annual_resolution_not_rescaled_by_view(scenarios):
+    """Already-annualized rows pass through unchanged under either view."""
+    cmp = Comparison.from_scenarios(scenarios)
+    for view in ("per_year", "cumulative"):
+        wide = cmp.table("energy_mwh", view=view, resolution="annual")
+        for s in scenarios:
+            stored = s.metric_set.scalar(
+                "plant", "energy_mwh", resolution="annual", period="annual"
+            )
+            assert wide.loc[s.name, "energy_mwh"] == pytest.approx(stored)
+
+
 def test_from_cases_matches_from_scenarios(scenarios, tmp_path):
     # Write each scenario's metric_set to a per-case metrics.csv, then collect.
     case_dirs = []

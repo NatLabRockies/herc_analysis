@@ -218,6 +218,12 @@ def test_annual_resolution_is_total_over_sim_years(fixture_h5):
     )
     assert annual_cf == pytest.approx(total_cf)
 
+    # The scaling tag describes the metric's nature, not the resolution: energy
+    # is 'extensive' at both 'total' and 'annual'.
+    rows = ms.rows
+    energy = rows[(rows["entity"] == "plant") & (rows["metric"] == "energy_mwh")]
+    assert set(energy["scaling"]) == {"extensive"}
+
 
 def test_yearly_resolution_buckets_per_year(fixture_h5):
     s = Scenario(fixture_h5, resolutions=("total", "yearly"))

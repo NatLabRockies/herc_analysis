@@ -97,18 +97,18 @@ def _rows_from_nested(
 
     For ``resolution="annual"`` the values are the *average annual* figures: each
     extensive metric is the whole-run total divided by ``sim_years`` (intensive
-    metrics are left as-is), and the row is tagged ``scaling="intensive"`` because
-    an annualized figure no longer scales with simulation length.
+    metrics are left as-is). The ``scaling`` tag always describes the metric's
+    intrinsic nature (energy is ``extensive`` at every resolution); it is the
+    *resolution* that records whether a value is a cumulative total or already
+    bucketed -- ``Comparison`` only applies the per_year/cumulative conversion to
+    ``total`` rows.
     """
     annualize = resolution == "annual"
     rows: list[dict] = []
 
     def _row(entity, metric, value, unit, scaling):
-        if annualize:
-            if scaling == "extensive":
-                value = value / sim_years if sim_years else float("nan")
-            # intensive / annual figures are already per-year; leave the value.
-            scaling = "intensive"
+        if annualize and scaling == "extensive":
+            value = value / sim_years if sim_years else float("nan")
         rows.append(
             {
                 "entity": entity,
