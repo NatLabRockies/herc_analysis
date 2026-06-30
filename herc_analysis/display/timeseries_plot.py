@@ -1,14 +1,13 @@
 """L6 -- the signal-driven Plotly time-series figure.
 
-This re-points the existing ``PlotHerculesOutput`` at the new ``Scenario`` object
-via ``timeseries_figure``: a small factory that accepts a ``Scenario`` (or a
-list, for the documented multi-scenario overlay mode) and adapts it to the
-interface the plotter expects -- ``.df`` (derived + raw signal columns),
-``.components`` and ``.interconnect_mw``.
-
-It also accepts an ``OutputAnalysis`` directly for backward compatibility. The
-underlying plotter is unchanged, so figures match the current output; the full
-relocation of the plotter into this module happens in the final migration phase.
+The signal-driven plotter engine lives in :mod:`._plot_engine` (relocated from
+the former top-level ``plotting`` module). ``timeseries_figure`` is the entry
+point: a small factory that accepts a ``Scenario`` (or a list, for the
+multi-scenario overlay mode) and adapts it to the interface the plotter expects
+-- ``.df`` (derived + raw signal columns), ``.components`` and
+``.interconnect_mw``. Any other object already exposing that interface is passed
+through unchanged. The plotter itself is unmodified, so figures match the
+pre-refactor output.
 """
 
 from __future__ import annotations

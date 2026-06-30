@@ -170,3 +170,31 @@ def test_construction_is_cheap(fixture_h5):
     assert [c.name for c in s.components]  # discovery happened
     _ = s.channels
     assert "channels" in s.__dict__  # now cached
+
+
+def test_metric_set_default_resolutions_exclude_monthly(fixture_h5):
+    s = Scenario(fixture_h5)  # default ("total", "annual")
+    resolutions = set(s.metric_set.rows["resolution"])
+    assert resolutions == {"total", "annual"}
+    assert "monthly" not in resolutions
+
+
+def test_metric_set_includes_monthly_only_when_requested(fixture_h5):
+    s = Scenario(fixture_h5, resolutions=("total", "monthly"))
+    resolutions = set(s.metric_set.rows["resolution"])
+    assert resolutions == {"total", "monthly"}
+    # monthly rows reproduce the nested monthly_metrics values.
+    assert s.metric_set.at("monthly")["period"].nunique() == len(s.monthly_metrics)
+
+
+def test_metrics_at_buckets_by_calendar(fixture_h5):
+    s = Scenario(fixture_h5)
+    total = s.metrics_at("total")
+    assert set(total) == {"total"} and total["total"] is s.metrics
+    annual = s.metrics_at("annual")
+    assert set(annual) == {"2024"}  # fixture spans Jan 2024
+
+
+def test_unsupported_resolution_rejected(fixture_h5):
+    with pytest.raises(ValueError, match="Unsupported resolution"):
+        Scenario(fixture_h5, resolutions=("weekly",))

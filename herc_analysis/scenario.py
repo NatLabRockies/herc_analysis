@@ -14,14 +14,14 @@ themselves contain underscores), plant-level columns use a ``plant__`` prefix,
 power stays in Hercules' kW convention (``__power_kw``), energy is MWh
 (``__energy_mwh``) and revenue is dollars (``__revenue_*_usd``).
 
-Phase 2 deliberately keeps the *outputs* identical to the current code: the
-``metrics`` / ``monthly_metrics`` nested dicts reproduce
+Outputs are identical to the pre-refactor code: the ``metrics`` /
+``monthly_metrics`` nested dicts reproduce the former
 ``TotalMetrics.compute_metrics`` / ``compute_monthly_metrics`` exactly (the
 "no behavior change" contract, verified against the golden snapshots). The
 derived channels carry every physical quantity the old ``OutputAnalysis.df``
-held, but in the new naming/unit convention rather than as a raw copy; Phase 3
-re-expresses ``metrics`` as a long-format ``MetricSet`` (with ``to_nested()``
-returning this same dict).
+held, but in the new naming/unit convention rather than as a raw copy. The same
+metrics are also exposed in long form via :attr:`Scenario.metric_set`
+(a :class:`~herc_analysis.metrics.MetricSet`), the shape ``Comparison`` consumes.
 """
 
 from __future__ import annotations
@@ -31,10 +31,15 @@ from functools import cached_property
 import pandas as pd
 from hercules.hercules_output import HerculesOutput
 
-from herc_analysis import channels, pricing, reducers
+from herc_analysis import channels, pricing, reducers, timeseries
 from herc_analysis.components import ComponentInfo, discover_components
 from herc_analysis.io import RunMeta, load_run
 from herc_analysis.metrics import MetricSet
+
+# Temporal resolutions a Scenario can compute metrics at (see
+# herc_analysis.timeseries.period_labels). "total" is one bucket for the whole
+# run; the rest bucket by calendar period and need a time_utc column.
+SUPPORTED_RESOLUTIONS = ("total", "annual", "monthly")
 
 
 def _ch(name: str, signal: str) -> str:
@@ -136,14 +141,24 @@ class Scenario:
             name (str, optional): A label for the scenario. Defaults to
                 ``"scenario"``.
             resolutions (tuple[str, ...], optional): Temporal resolutions the
-                metrics will eventually expose. Retained for the Phase 3
-                ``MetricSet`` work; not yet consumed. Defaults to
-                ``("total", "annual")``.
+                ``metric_set`` exposes -- any of :data:`SUPPORTED_RESOLUTIONS`
+                (``"total"``, ``"annual"``, ``"monthly"``). Defaults to
+                ``("total", "annual")``; pass ``"monthly"`` explicitly to include
+                per-month rows. Calendar resolutions need a ``time_utc`` column.
+
+        Raises:
+            ValueError: If a requested resolution is not supported.
         """
+        unknown = [r for r in resolutions if r not in SUPPORTED_RESOLUTIONS]
+        if unknown:
+            raise ValueError(
+                f"Unsupported resolution(s) {unknown}; "
+                f"choose from {list(SUPPORTED_RESOLUTIONS)}."
+            )
         self.output = output if isinstance(output, HerculesOutput) else load_run(output)
         self.meta = RunMeta.from_output(self.output)
         self.name = name or "scenario"
-        self.resolutions = resolutions
+        self.resolutions = tuple(resolutions)
         self.components: list[ComponentInfo] = discover_components(self.output.h_dict)
 
     # ------------------------------------------------------------------
@@ -199,9 +214,9 @@ class Scenario:
     def metrics(self) -> dict:
         """Scalar metrics for the whole run as a nested dict.
 
-        Reproduces ``TotalMetrics.compute_metrics(display=False)`` exactly.
-        Phase 3 re-expresses this as a long-format ``MetricSet`` whose
-        ``to_nested()`` returns the same shape.
+        Reproduces the former ``TotalMetrics.compute_metrics(display=False)``
+        exactly. The same numbers are available in long form via
+        :attr:`metric_set`.
 
         Returns:
             dict: Nested metrics (``simulation_metadata``, ``components``,
@@ -252,22 +267,68 @@ class Scenario:
             )
         return out
 
+    def metrics_at(self, resolution: str) -> dict:
+        """Nested metrics for every period bucket at one temporal resolution.
+
+        Args:
+            resolution (str): One of :data:`SUPPORTED_RESOLUTIONS`.
+
+        Returns:
+            dict: ``{period: nested_metrics_dict}``. ``"total"`` yields a single
+            ``{"total": ...}`` bucket (the whole-run :attr:`metrics`); calendar
+            resolutions bucket by period label (``"2024"``, ``"2024-03"``, ...).
+
+        Raises:
+            ValueError: If ``resolution`` is unsupported, or a calendar
+                resolution is requested with no ``time_utc`` column.
+        """
+        if resolution == "total":
+            return {"total": self.metrics}
+        if resolution == "monthly":
+            return self.monthly_metrics
+
+        df = self.channels
+        if "time_utc" not in df.columns:
+            raise ValueError(
+                f"time_utc column is required for resolution {resolution!r}"
+            )
+        labels = timeseries.period_labels(df["time_utc"], resolution)
+        out: dict = {}
+        for period in sorted(labels.unique()):
+            bucket = df[labels == period]
+            out[str(period)] = self._scalar_metrics(
+                bucket,
+                sim_time_s=len(bucket) * self.meta.dt_s,
+                n_rows=len(bucket),
+                time_key="period_simulation_time_s",
+                include_tb4=False,
+            )
+        return out
+
     @cached_property
     def metric_set(self) -> MetricSet:
         """The run's metrics as a canonical long-format :class:`MetricSet`.
 
-        Carries the curated numeric metrics (plant, per-component, market) at
-        ``resolution="total"`` plus, when ``time_utc`` is available, one bucket
-        per month (``resolution="monthly"``). This is the shape ``Comparison``
-        consumes and what ``MetricSet.to_csv`` writes.
+        Emits the curated numeric metrics (plant, per-component, market) at each
+        resolution in :attr:`resolutions` (default ``("total", "annual")``;
+        ``"monthly"`` is included only when explicitly requested). This is the
+        shape ``Comparison`` consumes and what ``MetricSet.to_csv`` writes.
+
+        Calendar resolutions are skipped when the run has no ``time_utc`` column,
+        leaving only ``"total"``.
 
         Returns:
             MetricSet: Long-format metrics for this run.
         """
-        rows = _rows_from_nested(self.metrics, resolution="total", period="total")
-        if "time_utc" in self.channels.columns:
-            for month, mm in self.monthly_metrics.items():
-                rows.extend(_rows_from_nested(mm, resolution="monthly", period=month))
+        has_time = "time_utc" in self.channels.columns
+        rows: list[dict] = []
+        for resolution in self.resolutions:
+            if resolution != "total" and not has_time:
+                continue
+            for period, nested in self.metrics_at(resolution).items():
+                rows.extend(
+                    _rows_from_nested(nested, resolution=resolution, period=period)
+                )
         return MetricSet(pd.DataFrame(rows), sim_years=self.meta.sim_years)
 
     # ------------------------------------------------------------------
