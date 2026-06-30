@@ -1,4 +1,4 @@
-"""Tests for herc_analysis.input_analysis."""
+"""Tests for the input-signal plot helpers (herc_analysis.display.input_plots)."""
 
 import matplotlib
 

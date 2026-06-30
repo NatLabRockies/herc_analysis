@@ -1,4 +1,4 @@
-"""Tests for herc_analysis.miso_capacity.
+"""Tests for the MISO capacity engine (herc_analysis.capacity._miso_engine).
 
 Organised from small building blocks to larger integration:
   1. Helpers and shared fixtures

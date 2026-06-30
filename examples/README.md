@@ -10,9 +10,9 @@ first.
 Loads output from HERCULES Example 05 (wind farm + battery storage with
 LMP-based control) and shows:
 
-- Component discovery via `OutputAnalysis`
-- Total metrics computation with `TotalMetrics`
-- Interactive plotting with `PlotHerculesOutput`, including custom signal
+- Component discovery and metrics from a single `Scenario`
+  (`scenario.metric_set.to_csv(...)` writes the long-format metrics)
+- Interactive plotting with `display.timeseries_figure`, including custom signal
   subplots for wind speed, individual turbine powers, battery SOC, and
   battery power vs setpoint
 
@@ -28,20 +28,31 @@ Compares two stored scenarios side-by-side:
 - **Wind Only** -- HERCULES Example 02b (wind farm with precomputed FLORIS)
 - **Wind + Storage** -- HERCULES Example 05 (wind farm + battery + LMP)
 
-Demonstrates multi-scenario `TotalMetrics` comparison, bar-chart plotting of
-metrics, and multi-scenario interactive overlays.
+Demonstrates cross-scenario comparison with the single `Comparison` engine,
+bar-chart plotting of metrics, and multi-scenario interactive overlays.
 
 ```bash
 cd examples/01_two_scenario_analysis
 python example_analysis.py
 ```
 
+## 02 -- MISO Capacity Analysis
+
+A wind farm spanning a full MISO planning year; demonstrates the `capacity`
+package (`MisoCapacity`, availability providers, interconnect limiting, ISAC /
+SAC / revenue). See that folder's `readme.md` for the per-script breakdown.
+
+## 04 -- Input Signal Analysis
+
+Exploratory plots of input signals (LMP donuts/histograms/boxplots, diurnal
+profiles, correlations) via the `display` input-plot helpers.
+
 ## 05 -- Cross-Scenario Comparison
 
-Uses `ScenarioComparison` to compare metrics across an arbitrary number of
-cases from tidy per-case `metrics.csv` files: select metrics and a scope,
-choose `annual` or `total` scaling, and render to CSV, a `great_tables` table,
-or a per-metric plot.
+Uses the single `Comparison` engine to compare metrics across an arbitrary
+number of cases from tidy per-case `metrics.csv` files: select metrics and an
+entity, choose the `per_year` or `cumulative` view, and render to CSV, a
+`great_tables` table, or a per-metric plot.
 
 ```bash
 cd examples/05_scenario_comparison

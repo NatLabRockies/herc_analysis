@@ -30,7 +30,7 @@ from typing import Literal
 import pandas as pd
 
 Scaling = Literal["extensive", "intensive", "annual"]
-Resolution = Literal["total", "annual", "monthly", "seasonal", "hourly"]
+Resolution = Literal["total", "annual", "yearly", "monthly"]
 
 METRIC_COLUMNS = (
     "entity",
@@ -63,10 +63,13 @@ class MetricSet:
     ``(entity, metric, resolution, period)``.
 
     ``entity``     -- ``"plant"``, a category, or a component name.
-    ``resolution`` -- temporal resolution: ``total`` / ``annual`` / ``monthly``.
+    ``resolution`` -- ``total`` (whole-run total), ``annual`` (the average
+                      annual value), ``yearly`` (per calendar year) or
+                      ``monthly``.
     ``period``     -- the bucket within the resolution
-                      (``"total"``, ``"2024"``, ``"2024-03"``).
-    ``scaling``    -- extensive / intensive / annual normalization.
+                      (``"total"``, ``"annual"``, ``"2024"``, ``"2024-03"``).
+    ``scaling``    -- extensive / intensive / annual normalization (the metric's
+                      intrinsic nature, the same at every resolution).
     """
 
     def __init__(self, rows: pd.DataFrame, *, sim_years: float):

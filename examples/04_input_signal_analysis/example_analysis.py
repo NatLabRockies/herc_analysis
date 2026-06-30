@@ -2,7 +2,8 @@
 
 Loads the MISO wind-farm Hercules output (which carries real-time and
 day-ahead LMPs as external signals and spans roughly one year of UTC
-time) and demonstrates the helpers in :mod:`herc_analysis.input_analysis`:
+time) and demonstrates the input-signal plot helpers in
+:mod:`herc_analysis.display` (formerly ``herc_analysis.input_analysis``):
 
   * Donut plot of negative vs positive LMP, overall and by year.
   * Histograms of LMP and wind farm power.

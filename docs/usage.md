@@ -39,7 +39,9 @@ cmp.plot("energy_mwh", view="cumulative")
 
 `view` selects the scaling view: `"per_year"` divides extensive totals by
 `sim_years`; `"cumulative"` reports the whole-run totals (annual-tagged values
-multiplied up).
+multiplied up). This conversion applies only to `total`-resolution rows;
+already-bucketed resolutions (`annual` / `yearly` / `monthly`) are returned
+as-is.
 
 `Scenario` exposes metrics at several **resolutions** (choose with
 `Scenario(file, resolutions=...)`, default `("total", "annual")`):

@@ -36,8 +36,10 @@ capability — only the import paths and a few object names do.
    it stays on `scenario.output` (a `HerculesOutput`).
 2. **Metrics are long-format.** `scenario.metric_set` is a table with one row per
    `(entity, metric, resolution, period)` plus `value`, `unit`, `scaling`. Use
-   `.scalar(entity, metric)` to read one value, `.to_csv(path)` to export, and
-   `.to_nested()` (or `scenario.metrics`) for the old nested shape.
+   `.scalar(entity, metric)` to read one value and `.to_csv(path)` to export. For
+   the *exact* pre-refactor nested dict use `scenario.metrics`;
+   `MetricSet.to_nested()` is a lighter `{entity: {metric: value}}` grouping (no
+   `simulation_metadata` / `component_type` / `categories` nesting).
 3. **Units are explicit in channel names.** Derived channels use
    `{component}__{signal}`: power stays in **kW** (`battery__power_kw`), energy is
    **MWh** (`battery__energy_mwh`), revenue is **$** (`battery__revenue_rt_usd`),
@@ -126,7 +128,8 @@ from herc_analysis import OutputAnalysis, TotalMetrics
 from herc_analysis.scenario_compare import ScenarioComparison
 
 oas = [OutputAnalysis(p) for p in case_paths]
-TotalMetrics(oas).save_comparison("outputs/compare.csv")          # list-mode
+tm = TotalMetrics(oas)                                            # list-mode
+tm.compute_metrics(); tm.compare_scenarios(output_csv="outputs/compare.csv")
 sc = ScenarioComparison.from_cases(case_dirs, metric_file="outputs/metrics.csv")
 sc.to_great_table(sc.table(["capacity_factor", "revenue_rt"]))
 
@@ -156,8 +159,9 @@ cmp.plot("revenue_rt", entity="plant", view="per_year")
   (`wind_farm.wind_speed_mean_background`, `battery.soc`, …) live on
   `scenario.output.df`. The bundled `timeseries_figure` rebuilds the old-style
   names internally, so existing `SignalSubplot` specs keep working.
-- **Nested dict.** Code that still wants the nested metrics dict can use
-  `scenario.metrics` or `scenario.metric_set.to_nested()`.
+- **Nested dict.** Code that wants the exact pre-refactor nested dict uses
+  `scenario.metrics`; `scenario.metric_set.to_nested()` gives a lighter
+  `{entity: {metric: value}}` view.
 
 ## Verification recipe
 

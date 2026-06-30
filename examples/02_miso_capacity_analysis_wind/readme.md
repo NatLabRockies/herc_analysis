@@ -7,7 +7,6 @@ of PY 2223 and PY 2425.
 
 ## Scripts
 
-- `00_demo_battery_availability.py` — battery availability sweep (synthetic).
 - `01_demo_interconnect_limit.py` — effect of an interconnect limit on
   hourly wind output.
 - `02_demo_planning_year_coverage.py` — visualize which planning years are
@@ -17,3 +16,4 @@ of PY 2223 and PY 2425.
 - `04_wind_revenue.py` — wind revenue from PRA prices.
 - `05_battery_availability.py` — battery availability with the bundled h5.
 - `06_wind_battery_analysis.py` — combined wind + battery accreditation.
+- `07_sac_revenue_stacked_bars.py` — SAC and revenue stacked-bar charts.

@@ -1,4 +1,4 @@
-"""Tests for herc_analysis.utilities."""
+"""Tests for the shared time helpers (herc_analysis.timeseries)."""
 
 import pandas as pd
 import pytest
