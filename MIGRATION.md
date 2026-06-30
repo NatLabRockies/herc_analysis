@@ -58,7 +58,7 @@ capability — only the import paths and a few object names do.
 | `tm.save_metrics("metrics.csv")` | `scenario.metric_set.to_csv("metrics.csv")` |
 | `TotalMetrics([oa1, oa2])` + `compare_scenarios()` | `Comparison.from_scenarios([s1, s2]).table(...)` |
 | `ScenarioComparison.from_cases(dirs)` | `Comparison.from_cases(dirs)` |
-| `sc.compare(metrics, period=, scope=)` | `cmp.table(metrics, period=, entity=)` (`scope` → `entity`) |
+| `sc.compare(metrics, period=, scope=)` | `cmp.table(metrics, view=, entity=)` (`scope`→`entity`; `period="annual"/"total"`→`view="per_year"/"cumulative"`) |
 | `sc.to_great_table(df)` / `sc.plot_metric(...)` | `cmp.to_great_table(df)` / `cmp.plot(...)` |
 | `from herc_analysis.miso_capacity import MisoCapacity` | `from herc_analysis.capacity import MisoCapacity` |
 | `compute_battery_availability(...)` (free fn) | `from herc_analysis.capacity import BatteryAvailability` (provider) — the free function is still importable from `herc_analysis.capacity` |
@@ -70,9 +70,16 @@ Argument-level notes:
 
 - `Comparison.table(..., entity=...)` replaces `scope=...`; pass `entity="all"`
   for a `(entity, metric)` MultiIndex, or a list of entities.
-- `Comparison.table(..., resolution="total")` selects the temporal bucket
-  (`"total"` by default; `"monthly"` is available from `scenario.metric_set`).
+- `Comparison.table`/`plot` take `view="per_year"` (default) or
+  `view="cumulative"` — the rename of the old `period="annual"/"total"`.
+- `Comparison.table(..., resolution=...)` selects which resolution's rows to
+  compare (`"total"` by default).
 - `Scenario(..., name=..., resolutions=("total", "annual"))` are new keyword args.
+  Resolutions: `total` (whole-run total), `annual` (the *average* annual value =
+  extensive totals ÷ `sim_years`), `yearly` (per specific calendar year),
+  `monthly`. `yearly`/`monthly` are opt-in. Read with
+  `scenario.metric_set.scalar(entity, metric, resolution=, period=)` or
+  `scenario.metric_set.at(resolution)`.
 
 ## Worked example A — one case (`analyze.py`)
 
@@ -137,8 +144,8 @@ cmp = Comparison.from_scenarios(scenarios)                        # one engine..
 # ...or from saved files (the case-directory workflow, unchanged):
 cmp = Comparison.from_cases(case_dirs, metric_file="outputs/metrics.csv")
 
-cmp.to_great_table(cmp.table(["capacity_factor", "revenue_rt"], period="annual"))
-cmp.plot("revenue_rt", entity="plant", period="annual")
+cmp.to_great_table(cmp.table(["capacity_factor", "revenue_rt"], view="per_year"))
+cmp.plot("revenue_rt", entity="plant", view="per_year")
 ```
 
 ## Rename / shim notes

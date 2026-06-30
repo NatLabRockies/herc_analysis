@@ -47,7 +47,7 @@ def test_metric_set_matches_nested_metrics(scenarios):
 
 def test_from_scenarios_table_annual_scaling(scenarios):
     cmp = Comparison.from_scenarios(scenarios)
-    annual = cmp.table(["energy_mwh", "capacity_factor"], period="annual")
+    annual = cmp.table(["energy_mwh", "capacity_factor"], view="per_year")
     assert list(annual.index) == ["wind_only", "wind_storage"]
 
     for s in scenarios:
@@ -61,7 +61,7 @@ def test_from_scenarios_table_annual_scaling(scenarios):
 
 def test_total_view_equals_raw_for_extensive(scenarios):
     cmp = Comparison.from_scenarios(scenarios)
-    total = cmp.table("energy_mwh", period="total")
+    total = cmp.table("energy_mwh", view="cumulative")
     for s in scenarios:
         assert total.loc[s.name, "energy_mwh"] == pytest.approx(
             s.metric_set.scalar("plant", "energy_mwh")
@@ -80,8 +80,8 @@ def test_from_cases_matches_from_scenarios(scenarios, tmp_path):
     from_scen = Comparison.from_scenarios(scenarios)
 
     metrics = ["energy_mwh", "capacity_factor", "revenue_rt"]
-    a = from_cases.table(metrics, period="annual")
-    b = from_scen.table(metrics, period="annual")
+    a = from_cases.table(metrics, view="per_year")
+    b = from_scen.table(metrics, view="per_year")
     pd.testing.assert_frame_equal(a, b, check_exact=False, rtol=1e-9)
 
 
@@ -103,7 +103,7 @@ def test_missing_required_columns_raises():
 def test_value_factor_nan_safe(scenarios):
     """wind_only has no LMP; value_factor is NaN and must not crash the table."""
     cmp = Comparison.from_scenarios(scenarios)
-    vf = cmp.table("value_factor", period="annual")
+    vf = cmp.table("value_factor", view="per_year")
     assert math.isnan(vf.loc["wind_only", "value_factor"]) or vf.loc[
         "wind_only", "value_factor"
     ] == pytest.approx(vf.loc["wind_only", "value_factor"])

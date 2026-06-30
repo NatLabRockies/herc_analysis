@@ -248,7 +248,7 @@ class Comparison:
         self,
         metrics: str | Sequence[str],
         *,
-        period: str = "annual",
+        view: str = "per_year",
         entity: str | Sequence[str] = "plant",
         resolution: str = "total",
     ) -> pd.DataFrame:
@@ -256,22 +256,25 @@ class Comparison:
 
         Args:
             metrics (str | Sequence[str]): Metric name(s) to select.
-            period (str): ``"annual"`` or ``"total"`` (the scaling view).
-                Defaults to ``"annual"``.
+            view (str): The scaling view -- ``"per_year"`` (extensive totals
+                divided by ``sim_years``) or ``"cumulative"`` (the whole-run
+                totals; annual-tagged values multiplied up). Defaults to
+                ``"per_year"``.
             entity (str | Sequence[str]): A single entity (``"plant"`` or a
                 component) for flat columns, ``"all"`` for every entity, or a
                 list. Multiple entities produce a ``(entity, metric)`` column
                 MultiIndex. Defaults to ``"plant"``.
-            resolution (str): Temporal resolution to read rows from. Defaults to
-                ``"total"``.
+            resolution (str): Temporal resolution to read rows from
+                (``"total"`` / ``"annual"`` / ``"yearly"`` / ``"monthly"``).
+                Defaults to ``"total"``.
 
         Returns:
             pd.DataFrame: Cases (rows) by metrics (columns) of scaled values.
         """
         if isinstance(metrics, str):
             metrics = [metrics]
-        if period not in ("annual", "total"):
-            raise ValueError(f"period must be 'annual' or 'total', got {period!r}")
+        if view not in ("per_year", "cumulative"):
+            raise ValueError(f"view must be 'per_year' or 'cumulative', got {view!r}")
 
         single = isinstance(entity, str) and entity != "all"
 
@@ -292,7 +295,7 @@ class Comparison:
             else:
                 wide = pd.DataFrame(index=pd.Index(self.case_names, name="case"))
         else:
-            sub["scaled"] = self._scale(sub, period)
+            sub["scaled"] = self._scale(sub, view)
             if single:
                 wide = sub.pivot_table(
                     index="case", columns="metric", values="scaled", aggfunc="first"
@@ -314,21 +317,21 @@ class Comparison:
         return wide
 
     @staticmethod
-    def _scale(sub: pd.DataFrame, period: str) -> pd.Series:
-        """Convert raw values to the requested period view using the scaling tag.
+    def _scale(sub: pd.DataFrame, view: str) -> pd.Series:
+        """Convert raw values to the requested view using the scaling tag.
 
-        ``extensive`` divides by ``sim_years`` for an annual view; ``annual``
-        multiplies by ``sim_years`` for a total view; ``intensive`` is never
-        modified.
+        ``extensive`` divides by ``sim_years`` for the ``per_year`` view;
+        ``annual`` multiplies by ``sim_years`` for the ``cumulative`` view;
+        ``intensive`` is never modified.
         """
         value = sub["value"].astype(float)
         scaling = sub["scaling"]
         sim_years = sub["sim_years"].astype(float)
         out = value.copy()
-        if period == "annual":
+        if view == "per_year":
             ext = scaling == "extensive"
             out[ext] = value[ext] / sim_years[ext]
-        else:  # total
+        else:  # cumulative
             ann = scaling == "annual"
             out[ann] = value[ann] * sim_years[ann]
         return out
@@ -409,7 +412,7 @@ class Comparison:
         self,
         metric: str,
         *,
-        period: str = "annual",
+        view: str = "per_year",
         entity: str = "plant",
         resolution: str = "total",
         kind: str = "bar",
@@ -420,7 +423,8 @@ class Comparison:
 
         Args:
             metric (str): Metric name to plot.
-            period (str): ``"annual"`` or ``"total"``. Defaults to ``"annual"``.
+            view (str): ``"per_year"`` or ``"cumulative"``. Defaults to
+                ``"per_year"``.
             entity (str): Entity to plot. Defaults to ``"plant"``.
             resolution (str): Temporal resolution. Defaults to ``"total"``.
             kind (str): ``"bar"`` or ``"line"``. Defaults to ``"bar"``.
@@ -432,7 +436,7 @@ class Comparison:
         """
         import matplotlib.pyplot as plt
 
-        wide = self.table(metric, period=period, entity=entity, resolution=resolution)
+        wide = self.table(metric, view=view, entity=entity, resolution=resolution)
         values = wide[metric] if metric in wide.columns else wide.iloc[:, 0]
 
         if ax is None:
@@ -451,7 +455,7 @@ class Comparison:
 
         unit = self._unit(metric, entity)
         ylabel = f"{metric} ({unit})" if unit else metric
-        ax.set_ylabel(f"{ylabel} [{period}]")
+        ax.set_ylabel(f"{ylabel} [{view}]")
         ax.set_xticks(list(x))
         ax.set_xticklabels(wide.index, rotation=45, ha="right")
         ax.grid(True, axis="y")

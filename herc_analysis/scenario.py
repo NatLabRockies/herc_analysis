@@ -36,10 +36,14 @@ from herc_analysis.components import ComponentInfo, discover_components
 from herc_analysis.io import RunMeta, load_run
 from herc_analysis.metrics import MetricSet
 
-# Temporal resolutions a Scenario can compute metrics at (see
-# herc_analysis.timeseries.period_labels). "total" is one bucket for the whole
-# run; the rest bucket by calendar period and need a time_utc column.
-SUPPORTED_RESOLUTIONS = ("total", "annual", "monthly")
+# Resolutions a Scenario can compute metrics at:
+#   total   -- one bucket for the whole run (cumulative total).
+#   annual  -- one bucket: the *average* annual value (extensive totals / sim_years).
+#   yearly  -- per specific calendar year ("2024", "2025", ...).
+#   monthly -- per calendar month ("2024-03", ...).
+# Calendar resolutions (yearly, monthly) need a time_utc column.
+SUPPORTED_RESOLUTIONS = ("total", "annual", "yearly", "monthly")
+_CALENDAR_RESOLUTIONS = ("yearly", "monthly")
 
 
 def _ch(name: str, signal: str) -> str:
@@ -86,11 +90,25 @@ _STORAGE_METRIC_SPECS = (
 )
 
 
-def _rows_from_nested(nested: dict, *, resolution: str, period: str) -> list[dict]:
-    """Emit long-format rows for one nested metrics dict at one (resolution, period)."""
+def _rows_from_nested(
+    nested: dict, *, resolution: str, period: str, sim_years: float | None = None
+) -> list[dict]:
+    """Emit long-format rows for one nested metrics dict at one (resolution, period).
+
+    For ``resolution="annual"`` the values are the *average annual* figures: each
+    extensive metric is the whole-run total divided by ``sim_years`` (intensive
+    metrics are left as-is), and the row is tagged ``scaling="intensive"`` because
+    an annualized figure no longer scales with simulation length.
+    """
+    annualize = resolution == "annual"
     rows: list[dict] = []
 
     def _row(entity, metric, value, unit, scaling):
+        if annualize:
+            if scaling == "extensive":
+                value = value / sim_years if sim_years else float("nan")
+            # intensive / annual figures are already per-year; leave the value.
+            scaling = "intensive"
         rows.append(
             {
                 "entity": entity,
@@ -268,22 +286,29 @@ class Scenario:
         return out
 
     def metrics_at(self, resolution: str) -> dict:
-        """Nested metrics for every period bucket at one temporal resolution.
+        """Nested metrics for every period bucket at one calendar resolution.
 
         Args:
-            resolution (str): One of :data:`SUPPORTED_RESOLUTIONS`.
+            resolution (str): ``"total"``, ``"yearly"``, or ``"monthly"``.
 
         Returns:
             dict: ``{period: nested_metrics_dict}``. ``"total"`` yields a single
-            ``{"total": ...}`` bucket (the whole-run :attr:`metrics`); calendar
-            resolutions bucket by period label (``"2024"``, ``"2024-03"``, ...).
+            ``{"total": ...}`` bucket (the whole-run :attr:`metrics`); ``"yearly"``
+            and ``"monthly"`` bucket by calendar label (``"2024"``, ``"2024-03"``).
 
         Raises:
-            ValueError: If ``resolution`` is unsupported, or a calendar
-                resolution is requested with no ``time_utc`` column.
+            ValueError: For ``"annual"`` (an averaged aggregate, not a calendar
+                bucket -- read it from :attr:`metric_set`), an unknown
+                resolution, or a calendar resolution with no ``time_utc`` column.
         """
         if resolution == "total":
             return {"total": self.metrics}
+        if resolution == "annual":
+            raise ValueError(
+                "'annual' is the averaged annual value, not a calendar bucket; "
+                "read it from `scenario.metric_set` (use 'yearly' for per-year "
+                "buckets)."
+            )
         if resolution == "monthly":
             return self.monthly_metrics
 
@@ -310,26 +335,42 @@ class Scenario:
         """The run's metrics as a canonical long-format :class:`MetricSet`.
 
         Emits the curated numeric metrics (plant, per-component, market) at each
-        resolution in :attr:`resolutions` (default ``("total", "annual")``;
-        ``"monthly"`` is included only when explicitly requested). This is the
-        shape ``Comparison`` consumes and what ``MetricSet.to_csv`` writes.
+        resolution in :attr:`resolutions` (default ``("total", "annual")``):
 
-        Calendar resolutions are skipped when the run has no ``time_utc`` column,
-        leaving only ``"total"``.
+        * ``total``  -- the whole-run cumulative total.
+        * ``annual`` -- the *average* annual value (extensive totals / sim_years).
+        * ``yearly`` -- per specific calendar year.
+        * ``monthly``-- per calendar month.
+
+        ``yearly`` / ``monthly`` are included only when explicitly requested, and
+        are skipped when the run has no ``time_utc`` column. This is the shape
+        ``Comparison`` consumes and what ``MetricSet.to_csv`` writes.
 
         Returns:
             MetricSet: Long-format metrics for this run.
         """
         has_time = "time_utc" in self.channels.columns
+        sim_years = self.meta.sim_years
         rows: list[dict] = []
         for resolution in self.resolutions:
-            if resolution != "total" and not has_time:
+            if resolution == "annual":
+                # Averaged annual figures derived from the whole-run totals.
+                rows.extend(
+                    _rows_from_nested(
+                        self.metrics,
+                        resolution="annual",
+                        period="annual",
+                        sim_years=sim_years,
+                    )
+                )
+                continue
+            if resolution in _CALENDAR_RESOLUTIONS and not has_time:
                 continue
             for period, nested in self.metrics_at(resolution).items():
                 rows.extend(
                     _rows_from_nested(nested, resolution=resolution, period=period)
                 )
-        return MetricSet(pd.DataFrame(rows), sim_years=self.meta.sim_years)
+        return MetricSet(pd.DataFrame(rows), sim_years=sim_years)
 
     # ------------------------------------------------------------------
     # Channel build stages (private)

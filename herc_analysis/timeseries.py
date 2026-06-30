@@ -269,35 +269,36 @@ def to_hourly(
 def period_labels(time_utc: pd.Series, resolution: str) -> pd.Series:
     """Map each timestamp to its bucket label for a temporal resolution.
 
-    The single primitive behind ALL periodization -- "monthly" is no longer a
+    The single primitive behind calendar bucketing -- "monthly" is no longer a
     special case, it is just one resolution::
 
         total     -> "total"      (one bucket)
-        annual    -> "2024"       (calendar year)
+        yearly    -> "2024"       (per specific calendar year)
         monthly   -> "2024-03"
 
-    Adding a new resolution is adding one branch here; nothing else changes.
-    ``seasonal`` and ``hourly`` are reserved for a later phase.
+    Note ``"annual"`` (the *average* annual value across the run) is not a
+    calendar bucket and is handled by ``Scenario``, not here -- use ``"yearly"``
+    for per-year buckets.
 
     Args:
         time_utc (pd.Series): Timezone-aware UTC timestamps.
-        resolution (str): One of ``"total"``, ``"annual"``, ``"monthly"``.
+        resolution (str): One of ``"total"``, ``"yearly"``, ``"monthly"``.
 
     Returns:
         pd.Series: Bucket label per timestamp, aligned to ``time_utc``'s index.
 
     Raises:
-        ValueError: If ``resolution`` is not supported.
+        ValueError: If ``resolution`` is not a supported calendar bucket.
     """
     if resolution == "total":
         return pd.Series("total", index=time_utc.index)
-    if resolution == "annual":
+    if resolution == "yearly":
         return time_utc.dt.year.astype(str)
     if resolution == "monthly":
         return time_utc.dt.strftime("%Y-%m")
     raise ValueError(
-        f"Unsupported resolution '{resolution}'. "
-        "Supported: 'total', 'annual', 'monthly'."
+        f"Unsupported calendar resolution '{resolution}'. "
+        "Supported: 'total', 'yearly', 'monthly'."
     )
 
 

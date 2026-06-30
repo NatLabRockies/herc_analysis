@@ -134,7 +134,7 @@ def test_capacity_metrics_compose_into_comparison():
     long = cap.to_metrics()
     long["case"] = "synthetic"
     cmp = Comparison(long)
-    annual = cmp.table("capacity_revenue", period="annual", entity="plant")
+    annual = cmp.table("capacity_revenue", view="per_year", entity="plant")
     # scaling="annual" -> annual view is the raw value, unchanged.
     assert annual.loc["synthetic", "capacity_revenue"] == pytest.approx(
         sum(cap.revenue().values())

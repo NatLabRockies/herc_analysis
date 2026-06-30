@@ -33,12 +33,27 @@ access and are cached. The raw frame is never copied — it stays on `s.output`.
 from herc_analysis import Comparison
 
 cmp = Comparison.from_scenarios([s1, s2])          # or .from_cases(case_dirs)
-cmp.table(["energy_mwh", "revenue_rt"], period="annual", entity="plant")
-cmp.plot("energy_mwh", period="total")
+cmp.table(["energy_mwh", "revenue_rt"], view="per_year", entity="plant")
+cmp.plot("energy_mwh", view="cumulative")
 ```
 
-`period` selects the scaling view (`"annual"` divides extensive totals by
-`sim_years`; `"total"` multiplies annual-tagged values up).
+`view` selects the scaling view: `"per_year"` divides extensive totals by
+`sim_years`; `"cumulative"` reports the whole-run totals (annual-tagged values
+multiplied up).
+
+`Scenario` exposes metrics at several **resolutions** (choose with
+`Scenario(file, resolutions=...)`, default `("total", "annual")`):
+
+| resolution | meaning |
+|-----------|---------|
+| `total`   | whole-run cumulative total |
+| `annual`  | average annual value (extensive totals ÷ `sim_years`) |
+| `yearly`  | per specific calendar year (`"2024"`, `"2025"`, …) |
+| `monthly` | per calendar month (`"2024-03"`, …) |
+
+Read one with `scenario.metric_set.scalar(entity, metric, resolution=..., period=...)`
+or a slice with `scenario.metric_set.at("yearly")`. `Comparison.table(..., resolution=...)`
+selects which resolution's rows to compare.
 
 ## Capacity accreditation
 

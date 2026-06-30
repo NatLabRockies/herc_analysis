@@ -46,18 +46,18 @@ def main():
     # Step 3: comparison tables (annual and total) at the plant level.
     annual = cmp.table(
         ["energy_mwh", "capacity_factor", "revenue_rt"],
-        period="annual",
+        view="per_year",
         entity="plant",
     )
     print("\nAnnual plant comparison:")
     print(annual)
 
-    total = cmp.table(["energy_mwh", "revenue_rt"], period="total", entity="plant")
+    total = cmp.table(["energy_mwh", "revenue_rt"], view="cumulative", entity="plant")
     print("\nTotal plant comparison:")
     print(total)
 
     # Per-component battery mileage (blank for the wind-only case).
-    mileage = cmp.table("battery_mileage_soc", period="total", entity="all")
+    mileage = cmp.table("battery_mileage_soc", view="cumulative", entity="all")
     print("\nBattery mileage (total, per component):")
     print(mileage)
 
@@ -74,7 +74,7 @@ def main():
     print("\nSaved great_tables table to outputs/annual_comparison.html")
 
     # Step 4b: plot a single metric across cases.
-    cmp.plot("energy_mwh", period="total", entity="plant")
+    cmp.plot("energy_mwh", view="cumulative", entity="plant")
     plt.savefig(EXAMPLE_DIR / "outputs" / "energy_total.png")
     print("Saved plot to outputs/energy_total.png")
     plt.show()

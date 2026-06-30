@@ -191,8 +191,39 @@ def test_metrics_at_buckets_by_calendar(fixture_h5):
     s = Scenario(fixture_h5)
     total = s.metrics_at("total")
     assert set(total) == {"total"} and total["total"] is s.metrics
-    annual = s.metrics_at("annual")
-    assert set(annual) == {"2024"}  # fixture spans Jan 2024
+    yearly = s.metrics_at("yearly")
+    assert set(yearly) == {"2024"}  # fixture spans Jan 2024
+
+
+def test_metrics_at_rejects_annual(fixture_h5):
+    s = Scenario(fixture_h5)
+    with pytest.raises(ValueError, match="averaged annual"):
+        s.metrics_at("annual")
+
+
+def test_annual_resolution_is_total_over_sim_years(fixture_h5):
+    s = Scenario(fixture_h5, resolutions=("total", "annual"))
+    ms = s.metric_set
+    sim_years = s.meta.sim_years
+    # extensive: annual == total / sim_years
+    total_energy = ms.scalar("plant", "energy_mwh", resolution="total", period="total")
+    annual_energy = ms.scalar(
+        "plant", "energy_mwh", resolution="annual", period="annual"
+    )
+    assert annual_energy == pytest.approx(total_energy / sim_years)
+    # intensive: annual == total (a rate; unchanged)
+    total_cf = ms.scalar("plant", "capacity_factor", resolution="total", period="total")
+    annual_cf = ms.scalar(
+        "plant", "capacity_factor", resolution="annual", period="annual"
+    )
+    assert annual_cf == pytest.approx(total_cf)
+
+
+def test_yearly_resolution_buckets_per_year(fixture_h5):
+    s = Scenario(fixture_h5, resolutions=("total", "yearly"))
+    ms = s.metric_set
+    yearly = ms.at("yearly")
+    assert set(yearly["period"]) == {"2024"}
 
 
 def test_unsupported_resolution_rejected(fixture_h5):

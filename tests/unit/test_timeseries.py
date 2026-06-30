@@ -58,7 +58,7 @@ def test_to_hourly_floors_and_means():
     assert len(out) == 2
 
 
-def test_period_labels_total_annual_monthly():
+def test_period_labels_total_yearly_monthly():
     times = pd.Series(
         pd.to_datetime(
             ["2024-01-15 00:00:00", "2024-03-20 00:00:00", "2025-02-01 00:00:00"],
@@ -66,7 +66,7 @@ def test_period_labels_total_annual_monthly():
         )
     )
     assert list(timeseries.period_labels(times, "total")) == ["total"] * 3
-    assert list(timeseries.period_labels(times, "annual")) == ["2024", "2024", "2025"]
+    assert list(timeseries.period_labels(times, "yearly")) == ["2024", "2024", "2025"]
     assert list(timeseries.period_labels(times, "monthly")) == [
         "2024-01",
         "2024-03",
