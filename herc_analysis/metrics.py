@@ -11,14 +11,15 @@ file's ``scope`` column to ``entity`` and adding the general ``resolution`` /
 ``period`` axis. ``to_nested()`` reconstructs a nested ``{entity: {metric: value}}``
 dict for back-compat consumers.
 
-Scaling semantics (carried over unchanged):
+Scaling semantics -- how a value converts between ``Comparison``'s two views,
+``per_year`` and ``cumulative``:
 
 * ``extensive``  -- cumulative over time; the stored value is the simulation
-  total. annual = value / sim_years; total = value.
+  total. per_year = value / sim_years; cumulative = value.
 * ``intensive``  -- a rate/ratio; unchanged by simulation length.
-  annual = value; total = value.
+  per_year = value; cumulative = value.
 * ``annual``     -- already per-year (e.g. capacity-auction revenue).
-  annual = value; total = value * sim_years.
+  per_year = value; cumulative = value * sim_years.
 """
 
 from __future__ import annotations

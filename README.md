@@ -89,6 +89,7 @@ Key objects:
 * `MetricSet` — the long-format metrics table shared by `Scenario` and `Comparison`.
 * `Comparison` — the single cross-scenario engine (`from_scenarios` / `from_cases`).
 * `herc_analysis.capacity` — `MisoCapacity` + availability providers.
-* `herc_analysis.display` — `timeseries_figure`, input plots, `to_great_table`.
+* `herc_analysis.display` — `timeseries_figure`, input plots, `to_great_table`
+  (see [`PLOTTING.md`](PLOTTING.md) for a plotting cheat sheet).
 
 Moving from a pre-refactor project? See [`MIGRATION.md`](MIGRATION.md).

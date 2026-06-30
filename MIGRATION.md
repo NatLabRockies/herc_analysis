@@ -158,7 +158,9 @@ cmp.plot("revenue_rt", entity="plant", view="per_year")
   `scenario.channels["battery__power_kw"]` in kW). Raw Hercules signals
   (`wind_farm.wind_speed_mean_background`, `battery.soc`, …) live on
   `scenario.output.df`. The bundled `timeseries_figure` rebuilds the old-style
-  names internally, so existing `SignalSubplot` specs keep working.
+  names internally, so existing `SignalSubplot` specs keep working — see
+  [`PLOTTING.md`](PLOTTING.md) for a `plot_interactive` / `SignalSubplot`
+  cheat sheet.
 - **Nested dict.** Code that wants the exact pre-refactor nested dict uses
   `scenario.metrics`; `scenario.metric_set.to_nested()` gives a lighter
   `{entity: {metric: value}}` view.

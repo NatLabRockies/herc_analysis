@@ -80,5 +80,8 @@ from herc_analysis.display import timeseries_figure
 timeseries_figure(s).plot_interactive(save_file="outputs/timeseries.html")
 ```
 
+See `PLOTTING.md` (repo root) for a `plot_interactive` / `SignalSubplot` cheat
+sheet with copy-paste recipes.
+
 Migrating an existing project from the pre-refactor API? See `MIGRATION.md` in
 the repository root.

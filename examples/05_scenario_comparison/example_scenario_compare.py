@@ -4,7 +4,7 @@ Ported to the refactored API. The workflow is now:
 
 1. Build a ``Scenario`` per case and write its long-format ``metrics.csv``.
 2. Collect those files with the single :class:`~herc_analysis.Comparison` engine.
-3. Build annual / total comparison tables.
+3. Build comparison tables in the per-year and cumulative views.
 4. Render a ``great_tables`` table and a per-metric plot.
 
 ``Comparison`` replaces the old ``TotalMetrics`` list-mode and
@@ -43,7 +43,7 @@ def main():
     # Step 2: collect the per-case files into one comparison engine.
     cmp = Comparison.from_cases(case_dirs, case_names=list(SCENARIOS))
 
-    # Step 3: comparison tables (annual and total) at the plant level.
+    # Step 3: comparison tables (per-year and cumulative views) at the plant level.
     annual = cmp.table(
         ["energy_mwh", "capacity_factor", "revenue_rt"],
         view="per_year",
