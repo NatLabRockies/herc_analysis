@@ -38,10 +38,9 @@ cmp.plot("energy_mwh", view="cumulative")
 ```
 
 `view` selects the scaling view: `"per_year"` divides extensive totals by
-`sim_years`; `"cumulative"` reports the whole-run totals (annual-tagged values
-multiplied up). This conversion applies only to `total`-resolution rows;
-already-bucketed resolutions (`annual` / `yearly` / `monthly`) are returned
-as-is.
+`sim_years`; `"cumulative"` reports the whole-run totals. This conversion
+applies only to `total`-resolution rows; already-bucketed resolutions
+(`annual` / `yearly` / `monthly`) are returned as-is.
 
 `Scenario` exposes metrics at several **resolutions** (choose with
 `Scenario(file, resolutions=...)`, default `("total", "annual")`):
@@ -69,7 +68,7 @@ cap = MisoCapacity.from_scenario(
     )},
 )
 cap.revenue()        # annual $ per component
-cap.to_metrics()     # long-format rows (scaling="annual") for Comparison
+cap.to_metrics()     # long-format rows (extensive, total + annual) for Comparison
 ```
 
 ## Display

@@ -7,9 +7,9 @@ two named constructors ``from_scenarios`` / ``from_cases`` just produce that
 same table from a different source (live ``Scenario`` objects, or saved
 ``metrics.csv`` files) before handing it to ``__init__``.
 
-The scaling semantics (``extensive`` / ``intensive`` / ``annual``) carry over
-unchanged from the original ``ScenarioComparison``; the only schema change is
-``scope`` -> ``entity`` plus the temporal ``resolution`` / ``period`` axis.
+The scaling semantics (``extensive`` / ``intensive``) carry over unchanged from
+the original ``ScenarioComparison``; the only schema change is ``scope`` ->
+``entity`` plus the temporal ``resolution`` / ``period`` axis.
 """
 
 from __future__ import annotations
@@ -258,8 +258,7 @@ class Comparison:
             metrics (str | Sequence[str]): Metric name(s) to select.
             view (str): The scaling view -- ``"per_year"`` (extensive totals
                 divided by ``sim_years``) or ``"cumulative"`` (the whole-run
-                totals; annual-tagged values multiplied up). Defaults to
-                ``"per_year"``.
+                totals). Defaults to ``"per_year"``.
             entity (str | Sequence[str]): A single entity (``"plant"`` or a
                 component) for flat columns, ``"all"`` for every entity, or a
                 list. Multiple entities produce a ``(entity, metric)`` column
@@ -324,8 +323,7 @@ class Comparison:
         rows (cumulative totals). Already-bucketed resolutions
         (``annual`` / ``yearly`` / ``monthly``) are at their stated granularity
         and are returned unchanged. For total rows: ``extensive`` divides by
-        ``sim_years`` for ``per_year``; ``annual`` multiplies by ``sim_years``
-        for ``cumulative``; ``intensive`` is never modified.
+        ``sim_years`` for ``per_year``; ``intensive`` is never modified.
         """
         value = sub["value"].astype(float)
         if (sub["resolution"] != "total").any():
@@ -337,9 +335,6 @@ class Comparison:
         if view == "per_year":
             ext = scaling == "extensive"
             out[ext] = value[ext] / sim_years[ext]
-        else:  # cumulative
-            ann = scaling == "annual"
-            out[ann] = value[ann] * sim_years[ann]
         return out
 
     def _unit(self, metric: str, entity: str) -> str:

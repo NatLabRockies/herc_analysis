@@ -6,20 +6,20 @@
 :class:`~herc_analysis.comparison.Comparison` -- both speak this one shape.
 
 It keeps the scaling semantics designed in the original ``ScenarioComparison``
-tidy-file format (``extensive`` / ``intensive`` / ``annual``), renaming that
-file's ``scope`` column to ``entity`` and adding the general ``resolution`` /
+tidy-file format (``extensive`` / ``intensive``), renaming that file's
+``scope`` column to ``entity`` and adding the general ``resolution`` /
 ``period`` axis. ``to_nested()`` reconstructs a nested ``{entity: {metric: value}}``
 dict for back-compat consumers.
 
 Scaling semantics -- how a value converts between ``Comparison``'s two views,
-``per_year`` and ``cumulative``:
+``per_year`` and ``cumulative`` (for ``resolution="total"`` rows only;
+already-bucketed ``annual`` / ``yearly`` / ``monthly`` rows are returned
+as-is):
 
 * ``extensive``  -- cumulative over time; the stored value is the simulation
   total. per_year = value / sim_years; cumulative = value.
 * ``intensive``  -- a rate/ratio; unchanged by simulation length.
   per_year = value; cumulative = value.
-* ``annual``     -- already per-year (e.g. capacity-auction revenue).
-  per_year = value; cumulative = value * sim_years.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from typing import Literal
 
 import pandas as pd
 
-Scaling = Literal["extensive", "intensive", "annual"]
+Scaling = Literal["extensive", "intensive"]
 Resolution = Literal["total", "annual", "yearly", "monthly"]
 
 METRIC_COLUMNS = (
@@ -51,7 +51,7 @@ class MetricSpec:
     Attributes:
         name (str): Metric name (e.g. ``"energy_mwh"``).
         unit (str): Human-readable unit (e.g. ``"MWh"``, ``"k$"``, ``"-"``).
-        scaling (str): One of ``"extensive"``, ``"intensive"``, ``"annual"``.
+        scaling (str): One of ``"extensive"``, ``"intensive"``.
     """
 
     name: str
@@ -69,8 +69,8 @@ class MetricSet:
                       ``monthly``.
     ``period``     -- the bucket within the resolution
                       (``"total"``, ``"annual"``, ``"2024"``, ``"2024-03"``).
-    ``scaling``    -- extensive / intensive / annual normalization (the metric's
-                      intrinsic nature, the same at every resolution).
+    ``scaling``    -- extensive / intensive normalization (the metric's intrinsic
+                      nature, the same at every resolution).
     """
 
     def __init__(self, rows: pd.DataFrame, *, sim_years: float):

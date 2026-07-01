@@ -4,8 +4,9 @@ A base for market capacity-accreditation methods (MISO today, SPP next).
 Subclasses share an hourly frame, per-component resource classes and an
 interconnect limit; they differ in the accreditation math and the
 price/report tables. ``to_metrics`` emits results in the same long-format
-schema as :class:`~herc_analysis.metrics.MetricSet` (with ``scaling="annual"``)
-so capacity composes directly into :class:`~herc_analysis.comparison.Comparison`.
+schema as :class:`~herc_analysis.metrics.MetricSet` (``scaling="extensive"``,
+at both ``total`` and ``annual`` resolutions) so capacity composes directly
+into :class:`~herc_analysis.comparison.Comparison`.
 """
 
 from __future__ import annotations
@@ -61,29 +62,50 @@ class CapacityBase(ABC):
     def to_metrics(self) -> pd.DataFrame:
         """Emit capacity revenue in the long-format ``MetricSet`` schema.
 
-        One ``capacity_revenue`` row per component plus a ``plant`` total, all
-        tagged ``scaling="annual"`` (capacity revenue is determined by an annual
-        auction) so they compose straight into ``Comparison``. A ``sim_years``
-        column is included so the annual/total scaling resolves there.
+        One ``capacity_revenue`` row per component plus a ``plant`` total, at
+        both ``total`` (simulation cumulative) and ``annual`` (average annual)
+        resolutions. Values are tagged ``scaling="extensive"`` so ``total``
+        rows mean the same thing as for energy-market metrics and
+        ``Comparison`` view scaling is consistent.
 
         Returns:
             pd.DataFrame: Long-format rows with :data:`METRIC_COLUMNS` plus
             ``sim_years``.
+
+        Raises:
+            ValueError: If ``sim_years`` was not provided at construction.
         """
+        if self.sim_years is None:
+            raise ValueError("sim_years is required for to_metrics()")
+
         rev = self.revenue()
 
-        def _row(entity, value):
-            return {
-                "entity": entity,
-                "metric": "capacity_revenue",
-                "resolution": "total",
-                "period": "total",
-                "value": float(value),
-                "unit": "$",
-                "scaling": "annual",
-                "sim_years": self.sim_years,
-            }
+        def _rows(entity: str, annual_usd: float) -> list[dict]:
+            return [
+                {
+                    "entity": entity,
+                    "metric": "capacity_revenue",
+                    "resolution": "total",
+                    "period": "total",
+                    "value": float(annual_usd * self.sim_years),
+                    "unit": "$",
+                    "scaling": "extensive",
+                    "sim_years": self.sim_years,
+                },
+                {
+                    "entity": entity,
+                    "metric": "capacity_revenue",
+                    "resolution": "annual",
+                    "period": "annual",
+                    "value": float(annual_usd),
+                    "unit": "$",
+                    "scaling": "extensive",
+                    "sim_years": self.sim_years,
+                },
+            ]
 
-        rows = [_row(comp, val) for comp, val in rev.items()]
-        rows.append(_row("plant", sum(rev.values())))
+        rows: list[dict] = []
+        for comp, val in rev.items():
+            rows.extend(_rows(comp, val))
+        rows.extend(_rows("plant", sum(rev.values())))
         return pd.DataFrame(rows, columns=[*METRIC_COLUMNS, "sim_years"])

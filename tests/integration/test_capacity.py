@@ -88,16 +88,41 @@ def test_to_metrics_schema_and_total():
         _frame_48h(),
         zone=1,
         interconnect_limit=100_000.0,
-        sim_years=1.0,
+        sim_years=2.0,
         remove_low_hour_planning_years=False,
     )
     m = new.to_metrics()
     assert {"entity", "metric", "value", "scaling", "sim_years"}.issubset(m.columns)
     assert (m["metric"] == "capacity_revenue").all()
-    assert (m["scaling"] == "annual").all()
-    plant = m.loc[m["entity"] == "plant", "value"].iloc[0]
-    comps = m.loc[m["entity"] != "plant", "value"].sum()
-    assert plant == pytest.approx(comps)
+    assert (m["scaling"] == "extensive").all()
+
+    annual_rev = sum(new.revenue().values())
+    plant_total = m.loc[
+        (m["entity"] == "plant") & (m["resolution"] == "total"), "value"
+    ].iloc[0]
+    plant_annual = m.loc[
+        (m["entity"] == "plant") & (m["resolution"] == "annual"), "value"
+    ].iloc[0]
+    assert plant_total == pytest.approx(annual_rev * 2.0)
+    assert plant_annual == pytest.approx(annual_rev)
+
+    comp_total = m.loc[
+        (m["entity"] != "plant") & (m["resolution"] == "total"), "value"
+    ].sum()
+    assert plant_total == pytest.approx(comp_total)
+
+
+def test_to_metrics_requires_sim_years():
+    new = MisoCapacity(
+        ["a", "b"],
+        ["wind", "wind"],
+        _frame_48h(),
+        zone=1,
+        interconnect_limit=100_000.0,
+        remove_low_hour_planning_years=False,
+    )
+    with pytest.raises(ValueError, match="sim_years is required"):
+        new.to_metrics()
 
 
 def test_from_scenario_matches_legacy_built_from_same_inputs():
@@ -135,8 +160,11 @@ def test_capacity_metrics_compose_into_comparison():
     long["case"] = "synthetic"
     cmp = Comparison(long)
     annual = cmp.table("capacity_revenue", view="per_year", entity="plant")
-    # scaling="annual" -> annual view is the raw value, unchanged.
     assert annual.loc["synthetic", "capacity_revenue"] == pytest.approx(
+        sum(cap.revenue().values())
+    )
+    cumulative = cmp.table("capacity_revenue", view="cumulative", entity="plant")
+    assert cumulative.loc["synthetic", "capacity_revenue"] == pytest.approx(
         sum(cap.revenue().values())
     )
 
