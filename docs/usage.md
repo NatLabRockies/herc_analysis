@@ -33,22 +33,21 @@ access and are cached. The raw frame is never copied — it stays on `s.output`.
 from herc_analysis import Comparison
 
 cmp = Comparison.from_scenarios([s1, s2])          # or .from_cases(case_dirs)
-cmp.table(["energy_mwh", "revenue_rt"], view="per_year", entity="plant")
-cmp.plot("energy_mwh", view="cumulative")
+cmp.table(["energy_mwh", "revenue_rt"], resolution="annual", entity="plant")
+cmp.plot("energy_mwh", resolution="total")
 ```
 
-`view` selects the scaling view: `"per_year"` divides extensive totals by
-`sim_years`; `"cumulative"` reports the whole-run totals (annual-tagged values
-multiplied up). This conversion applies only to `total`-resolution rows;
-already-bucketed resolutions (`annual` / `yearly` / `monthly`) are returned
-as-is.
+`resolution` selects which view of each metric to compare: `"annual"` is the
+average value per year, `"total"` is the value over the whole simulation length.
+Both are materialized up front, so the table just reads the requested rows — no
+rescaling at query time. `resolution` defaults to `"annual"`.
 
 `Scenario` exposes metrics at several **resolutions** (choose with
 `Scenario(file, resolutions=...)`, default `("total", "annual")`):
 
 | resolution | meaning |
 |-----------|---------|
-| `total`   | whole-run cumulative total |
+| `total`   | value over the whole simulation length |
 | `annual`  | average annual value (extensive totals ÷ `sim_years`) |
 | `yearly`  | per specific calendar year (`"2024"`, `"2025"`, …) |
 | `monthly` | per calendar month (`"2024-03"`, …) |
@@ -69,7 +68,7 @@ cap = MisoCapacity.from_scenario(
     )},
 )
 cap.revenue()        # annual $ per component
-cap.to_metrics()     # long-format rows (scaling="annual") for Comparison
+cap.to_metrics()     # long-format rows at annual + total resolution for Comparison
 ```
 
 ## Display

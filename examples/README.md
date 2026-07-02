@@ -51,7 +51,7 @@ profiles, correlations) via the `display` input-plot helpers.
 
 Uses the single `Comparison` engine to compare metrics across an arbitrary
 number of cases from tidy per-case `metrics.csv` files: select metrics and an
-entity, choose the `per_year` or `cumulative` view, and render to CSV, a
+entity, choose the `annual` or `total` resolution, and render to CSV, a
 `great_tables` table, or a per-metric plot.
 
 ```bash

@@ -26,9 +26,9 @@ class CapacityBase(ABC):
         components (list[str]): Component names participating in accreditation.
         classes (list[str]): Resource class per component (same order).
         interconnect_limit_mw (float): Interconnect limit in MW.
-        sim_years (float, optional): Simulation length in years, carried into
-            ``to_metrics`` so capacity rows convert between annual and total
-            views inside ``Comparison``. Defaults to None.
+        sim_years (float, optional): Simulation length in years, used by
+            ``to_metrics`` to derive the whole-simulation ``total`` revenue from
+            the native annual revenue. Defaults to None.
     """
 
     def __init__(
@@ -61,29 +61,40 @@ class CapacityBase(ABC):
     def to_metrics(self) -> pd.DataFrame:
         """Emit capacity revenue in the long-format ``MetricSet`` schema.
 
-        One ``capacity_revenue`` row per component plus a ``plant`` total, all
-        tagged ``scaling="annual"`` (capacity revenue is determined by an annual
-        auction) so they compose straight into ``Comparison``. A ``sim_years``
-        column is included so the annual/total scaling resolves there.
+        For each component (plus a ``plant`` total) two rows are emitted, matching
+        the convention used everywhere else:
+
+        * ``resolution="annual"`` -- the native annual capacity-auction revenue.
+        * ``resolution="total"``  -- that revenue over the whole simulation length
+          (annual revenue * ``sim_years``).
+
+        Both are tagged ``scaling="annual"`` (the metric's intrinsic nature: it is
+        determined by an annual auction). A ``sim_years`` column is carried through.
 
         Returns:
             pd.DataFrame: Long-format rows with :data:`METRIC_COLUMNS` plus
             ``sim_years``.
         """
         rev = self.revenue()
+        sim_years = self.sim_years
 
-        def _row(entity, value):
-            return {
-                "entity": entity,
-                "metric": "capacity_revenue",
-                "resolution": "total",
-                "period": "total",
-                "value": float(value),
-                "unit": "$",
-                "scaling": "annual",
-                "sim_years": self.sim_years,
-            }
+        def _rows(entity, annual):
+            annual = float(annual)
+            total = annual * sim_years if sim_years else float("nan")
+            for resolution, value in (("annual", annual), ("total", total)):
+                yield {
+                    "entity": entity,
+                    "metric": "capacity_revenue",
+                    "resolution": resolution,
+                    "period": resolution,
+                    "value": value,
+                    "unit": "$",
+                    "scaling": "annual",
+                    "sim_years": sim_years,
+                }
 
-        rows = [_row(comp, val) for comp, val in rev.items()]
-        rows.append(_row("plant", sum(rev.values())))
+        rows: list[dict] = []
+        for comp, val in rev.items():
+            rows.extend(_rows(comp, val))
+        rows.extend(_rows("plant", sum(rev.values())))
         return pd.DataFrame(rows, columns=[*METRIC_COLUMNS, "sim_years"])

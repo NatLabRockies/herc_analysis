@@ -4,7 +4,7 @@ Ported to the refactored API. The workflow is now:
 
 1. Build a ``Scenario`` per case and write its long-format ``metrics.csv``.
 2. Collect those files with the single :class:`~herc_analysis.Comparison` engine.
-3. Build comparison tables in the per-year and cumulative views.
+3. Build comparison tables at the ``annual`` and ``total`` resolutions.
 4. Render a ``great_tables`` table and a per-metric plot.
 
 ``Comparison`` replaces the old ``TotalMetrics`` list-mode and
@@ -43,21 +43,21 @@ def main():
     # Step 2: collect the per-case files into one comparison engine.
     cmp = Comparison.from_cases(case_dirs, case_names=list(SCENARIOS))
 
-    # Step 3: comparison tables (per-year and cumulative views) at the plant level.
+    # Step 3: comparison tables at the annual and total resolutions (plant level).
     annual = cmp.table(
         ["energy_mwh", "capacity_factor", "revenue_rt"],
-        view="per_year",
+        resolution="annual",
         entity="plant",
     )
     print("\nAnnual plant comparison:")
     print(annual)
 
-    total = cmp.table(["energy_mwh", "revenue_rt"], view="cumulative", entity="plant")
+    total = cmp.table(["energy_mwh", "revenue_rt"], resolution="total", entity="plant")
     print("\nTotal plant comparison:")
     print(total)
 
     # Per-component battery mileage (blank for the wind-only case).
-    mileage = cmp.table("battery_mileage_soc", view="cumulative", entity="all")
+    mileage = cmp.table("battery_mileage_soc", resolution="total", entity="all")
     print("\nBattery mileage (total, per component):")
     print(mileage)
 
@@ -74,7 +74,7 @@ def main():
     print("\nSaved great_tables table to outputs/annual_comparison.html")
 
     # Step 4b: plot a single metric across cases.
-    cmp.plot("energy_mwh", view="cumulative", entity="plant")
+    cmp.plot("energy_mwh", resolution="total", entity="plant")
     plt.savefig(EXAMPLE_DIR / "outputs" / "energy_total.png")
     print("Saved plot to outputs/energy_total.png")
     plt.show()

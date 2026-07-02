@@ -5,21 +5,26 @@
 :class:`~herc_analysis.scenario.Scenario` and the cross-scenario
 :class:`~herc_analysis.comparison.Comparison` -- both speak this one shape.
 
-It keeps the scaling semantics designed in the original ``ScenarioComparison``
-tidy-file format (``extensive`` / ``intensive`` / ``annual``), renaming that
-file's ``scope`` column to ``entity`` and adding the general ``resolution`` /
-``period`` axis. ``to_nested()`` reconstructs a nested ``{entity: {metric: value}}``
-dict for back-compat consumers.
+It renames the original ``ScenarioComparison`` tidy-file's ``scope`` column to
+``entity`` and adds the general ``resolution`` / ``period`` axis. ``to_nested()``
+reconstructs a nested ``{entity: {metric: value}}`` dict for back-compat consumers.
 
-Scaling semantics -- how a value converts between ``Comparison``'s two views,
-``per_year`` and ``cumulative``:
+Two resolutions carry the same quantity at different scales, both materialized up
+front (see :func:`herc_analysis.scenario._value_at`):
 
-* ``extensive``  -- cumulative over time; the stored value is the simulation
-  total. per_year = value / sim_years; cumulative = value.
-* ``intensive``  -- a rate/ratio; unchanged by simulation length.
-  per_year = value; cumulative = value.
+* ``total``  -- the value over the whole simulation length.
+* ``annual`` -- the average value per year.
+
+The ``scaling`` tag records each metric's intrinsic nature -- how ``annual`` and
+``total`` relate for it. It is used when the rows are built and kept as metadata;
+consumers such as ``Comparison`` just select a resolution and read the value.
+
+* ``extensive``  -- accumulates over time (e.g. energy, revenue).
+  total = value; annual = value / sim_years.
+* ``intensive``  -- a rate/ratio, independent of run length (e.g. capacity factor).
+  total = annual = value.
 * ``annual``     -- already per-year (e.g. capacity-auction revenue).
-  per_year = value; cumulative = value * sim_years.
+  annual = value; total = value * sim_years.
 """
 
 from __future__ import annotations

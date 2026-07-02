@@ -77,7 +77,7 @@ cap.report()                                       # seasonal + annual tables
 
 # Compare many runs through one engine.
 cmp = Comparison.from_scenarios([s, other_scenario])
-cmp.table(["energy_mwh", "capacity_factor", "revenue_rt"], view="per_year")
+cmp.table(["energy_mwh", "capacity_factor", "revenue_rt"], resolution="annual")
 
 # Interactive time-series figure.
 timeseries_figure(s).plot_interactive(save_file="outputs/timeseries.html")

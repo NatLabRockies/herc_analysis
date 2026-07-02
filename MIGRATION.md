@@ -45,6 +45,14 @@ capability — only the import paths and a few object names do.
    **MWh** (`battery__energy_mwh`), revenue is **$** (`battery__revenue_rt_usd`),
    and plant aggregates use a `plant__` prefix. (Metric *names* in `metric_set`
    keep the friendly `energy_mwh` / `revenue_rt` form.)
+4. **`annual` vs `total` is the only per-year/whole-run axis.** Every metric is
+   materialized at both resolutions: `annual` is the **average value per year**,
+   `total` is the value **over the whole simulation length**. For an extensive
+   metric (energy, revenue) `total = annual × sim_years`; a rate (`capacity_factor`)
+   is the same at both; capacity-auction revenue is native-`annual` and its `total`
+   is `annual × sim_years`. Pick one with `resolution=` — there is **no** separate
+   `view` argument and **no** `cumulative`/`per_year` (those earlier names are
+   removed; `cumulative` was redundant with `total`).
 
 ## Symbol-by-symbol map
 
@@ -60,7 +68,7 @@ capability — only the import paths and a few object names do.
 | `tm.save_metrics("metrics.csv")` | `scenario.metric_set.to_csv("metrics.csv")` |
 | `TotalMetrics([oa1, oa2])` + `compare_scenarios()` | `Comparison.from_scenarios([s1, s2]).table(...)` |
 | `ScenarioComparison.from_cases(dirs)` | `Comparison.from_cases(dirs)` |
-| `sc.compare(metrics, period=, scope=)` | `cmp.table(metrics, view=, entity=)` (`scope`→`entity`; `period="annual"/"total"`→`view="per_year"/"cumulative"`) |
+| `sc.compare(metrics, period=, scope=)` | `cmp.table(metrics, resolution=, entity=)` (`scope`→`entity`; `period="annual"/"total"`→`resolution="annual"/"total"`) |
 | `sc.to_great_table(df)` / `sc.plot_metric(...)` | `cmp.to_great_table(df)` / `cmp.plot(...)` |
 | `from herc_analysis.miso_capacity import MisoCapacity` | `from herc_analysis.capacity import MisoCapacity` |
 | `compute_battery_availability(...)` (free fn) | `from herc_analysis.capacity import BatteryAvailability` (provider) — the free function is still importable from `herc_analysis.capacity` |
@@ -72,14 +80,15 @@ Argument-level notes:
 
 - `Comparison.table(..., entity=...)` replaces `scope=...`; pass `entity="all"`
   for a `(entity, metric)` MultiIndex, or a list of entities.
-- `Comparison.table`/`plot` take `view="per_year"` (default) or
-  `view="cumulative"` — the rename of the old `period="annual"/"total"`.
-- `Comparison.table(..., resolution=...)` selects which resolution's rows to
-  compare (`"total"` by default).
+- `Comparison.table`/`plot` select the view purely through `resolution=`:
+  `"annual"` (default, average per year) or `"total"` (over the whole simulation
+  length). There is no separate `view` argument — the earlier `per_year` /
+  `cumulative` values are gone; use `resolution="annual"` / `"total"`.
 - `Scenario(..., name=..., resolutions=("total", "annual"))` are new keyword args.
-  Resolutions: `total` (whole-run total), `annual` (the *average* annual value =
-  extensive totals ÷ `sim_years`), `yearly` (per specific calendar year),
-  `monthly`. `yearly`/`monthly` are opt-in. Read with
+  Resolutions: `total` (value over the whole simulation length), `annual` (the
+  *average* annual value = extensive totals ÷ `sim_years`), `yearly` (per specific
+  calendar year), `monthly`. For an extensive metric, `total = annual × sim_years`;
+  `yearly`/`monthly` are opt-in. Read with
   `scenario.metric_set.scalar(entity, metric, resolution=, period=)` or
   `scenario.metric_set.at(resolution)`.
 
@@ -147,8 +156,8 @@ cmp = Comparison.from_scenarios(scenarios)                        # one engine..
 # ...or from saved files (the case-directory workflow, unchanged):
 cmp = Comparison.from_cases(case_dirs, metric_file="outputs/metrics.csv")
 
-cmp.to_great_table(cmp.table(["capacity_factor", "revenue_rt"], view="per_year"))
-cmp.plot("revenue_rt", entity="plant", view="per_year")
+cmp.to_great_table(cmp.table(["capacity_factor", "revenue_rt"], resolution="annual"))
+cmp.plot("revenue_rt", entity="plant", resolution="annual")
 ```
 
 ## Rename / shim notes

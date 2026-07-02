@@ -16,9 +16,9 @@ The two bundled stored simulations are treated as two cases:
 2. Collect the per-case files with `Comparison.from_cases` (or compare live
    `Scenario` objects with `Comparison.from_scenarios`).
 3. Build comparison tables, selecting metrics, an `entity` (`plant`, a component
-   name, or `all`) and a `view` (`per_year` or `cumulative`). The view scaling
-   is handled automatically via each metric's `scaling` tag (`extensive`,
-   `intensive`, or `annual`).
+   name, or `all`) and a `resolution` (`annual` — average per year, or `total` —
+   over the whole simulation length). Both resolutions are materialized up front,
+   so the table just reads the requested rows.
 4. Render a `great_tables` table and a per-metric plot across cases.
 
 ```bash

@@ -82,22 +82,35 @@ def test_pass_through_to_engine_helpers():
 
 
 def test_to_metrics_schema_and_total():
+    sim_years = 2.0
     new = MisoCapacity(
         ["a", "b"],
         ["wind", "wind"],
         _frame_48h(),
         zone=1,
         interconnect_limit=100_000.0,
-        sim_years=1.0,
+        sim_years=sim_years,
         remove_low_hour_planning_years=False,
     )
     m = new.to_metrics()
     assert {"entity", "metric", "value", "scaling", "sim_years"}.issubset(m.columns)
     assert (m["metric"] == "capacity_revenue").all()
     assert (m["scaling"] == "annual").all()
-    plant = m.loc[m["entity"] == "plant", "value"].iloc[0]
-    comps = m.loc[m["entity"] != "plant", "value"].sum()
-    assert plant == pytest.approx(comps)
+    # Both resolutions are materialized per entity.
+    assert set(m["resolution"]) == {"annual", "total"}
+
+    ann = m[m["resolution"] == "annual"]
+    tot = m[m["resolution"] == "total"]
+    # plant equals the sum of its components, at each resolution.
+    for sub in (ann, tot):
+        plant = sub.loc[sub["entity"] == "plant", "value"].iloc[0]
+        comps = sub.loc[sub["entity"] != "plant", "value"].sum()
+        assert plant == pytest.approx(comps)
+    # total == annual * sim_years, per entity.
+    for entity in ("a", "b", "plant"):
+        a = ann.loc[ann["entity"] == entity, "value"].iloc[0]
+        t = tot.loc[tot["entity"] == entity, "value"].iloc[0]
+        assert t == pytest.approx(a * sim_years)
 
 
 def test_from_scenario_matches_legacy_built_from_same_inputs():
@@ -134,10 +147,15 @@ def test_capacity_metrics_compose_into_comparison():
     long = cap.to_metrics()
     long["case"] = "synthetic"
     cmp = Comparison(long)
-    annual = cmp.table("capacity_revenue", view="per_year", entity="plant")
-    # scaling="annual" -> annual view is the raw value, unchanged.
+    annual = cmp.table("capacity_revenue", resolution="annual", entity="plant")
+    # annual resolution is the native annual auction revenue, unchanged.
     assert annual.loc["synthetic", "capacity_revenue"] == pytest.approx(
         sum(cap.revenue().values())
+    )
+    # total resolution is that revenue over the whole simulation length.
+    total = cmp.table("capacity_revenue", resolution="total", entity="plant")
+    assert total.loc["synthetic", "capacity_revenue"] == pytest.approx(
+        sum(cap.revenue().values()) * cap.sim_years
     )
 
 

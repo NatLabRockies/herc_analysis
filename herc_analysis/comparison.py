@@ -7,9 +7,12 @@ two named constructors ``from_scenarios`` / ``from_cases`` just produce that
 same table from a different source (live ``Scenario`` objects, or saved
 ``metrics.csv`` files) before handing it to ``__init__``.
 
-The scaling semantics (``extensive`` / ``intensive`` / ``annual``) carry over
-unchanged from the original ``ScenarioComparison``; the only schema change is
-``scope`` -> ``entity`` plus the temporal ``resolution`` / ``period`` axis.
+Values at every resolution are materialized up front by
+:class:`~herc_analysis.metrics.MetricSet`, so a comparison simply selects rows at
+the requested ``resolution`` -- ``annual`` (average per year) or ``total`` (over
+the whole simulation length) -- with no rescaling at query time. The ``scaling``
+tag (``extensive`` / ``intensive`` / ``annual``) is retained as informational
+metadata describing each metric's intrinsic nature.
 """
 
 from __future__ import annotations
@@ -248,33 +251,28 @@ class Comparison:
         self,
         metrics: str | Sequence[str],
         *,
-        view: str = "per_year",
         entity: str | Sequence[str] = "plant",
-        resolution: str = "total",
+        resolution: str = "annual",
     ) -> pd.DataFrame:
-        """Build a wide comparison table (cases x metrics) of scaled values.
+        """Build a wide comparison table (cases x metrics) at one resolution.
 
         Args:
             metrics (str | Sequence[str]): Metric name(s) to select.
-            view (str): The scaling view -- ``"per_year"`` (extensive totals
-                divided by ``sim_years``) or ``"cumulative"`` (the whole-run
-                totals; annual-tagged values multiplied up). Defaults to
-                ``"per_year"``.
             entity (str | Sequence[str]): A single entity (``"plant"`` or a
                 component) for flat columns, ``"all"`` for every entity, or a
                 list. Multiple entities produce a ``(entity, metric)`` column
                 MultiIndex. Defaults to ``"plant"``.
-            resolution (str): Temporal resolution to read rows from
-                (``"total"`` / ``"annual"`` / ``"yearly"`` / ``"monthly"``).
-                Defaults to ``"total"``.
+            resolution (str): Temporal resolution to read rows from --
+                ``"annual"`` (average per year), ``"total"`` (over the whole
+                simulation length), ``"yearly"`` or ``"monthly"``. Defaults to
+                ``"annual"``.
 
         Returns:
-            pd.DataFrame: Cases (rows) by metrics (columns) of scaled values.
+            pd.DataFrame: Cases (rows) by metrics (columns) of values at
+            ``resolution``.
         """
         if isinstance(metrics, str):
             metrics = [metrics]
-        if view not in ("per_year", "cumulative"):
-            raise ValueError(f"view must be 'per_year' or 'cumulative', got {view!r}")
 
         single = isinstance(entity, str) and entity != "all"
 
@@ -295,7 +293,7 @@ class Comparison:
             else:
                 wide = pd.DataFrame(index=pd.Index(self.case_names, name="case"))
         else:
-            sub["scaled"] = self._scale(sub, view)
+            sub["scaled"] = sub["value"].astype(float)
             if single:
                 wide = sub.pivot_table(
                     index="case", columns="metric", values="scaled", aggfunc="first"
@@ -315,32 +313,6 @@ class Comparison:
         )
         wide.index.name = "case"
         return wide
-
-    @staticmethod
-    def _scale(sub: pd.DataFrame, view: str) -> pd.Series:
-        """Convert whole-run total values to the requested view via the scaling tag.
-
-        The per_year/cumulative conversion only applies to ``resolution="total"``
-        rows (cumulative totals). Already-bucketed resolutions
-        (``annual`` / ``yearly`` / ``monthly``) are at their stated granularity
-        and are returned unchanged. For total rows: ``extensive`` divides by
-        ``sim_years`` for ``per_year``; ``annual`` multiplies by ``sim_years``
-        for ``cumulative``; ``intensive`` is never modified.
-        """
-        value = sub["value"].astype(float)
-        if (sub["resolution"] != "total").any():
-            return value
-
-        scaling = sub["scaling"]
-        sim_years = sub["sim_years"].astype(float)
-        out = value.copy()
-        if view == "per_year":
-            ext = scaling == "extensive"
-            out[ext] = value[ext] / sim_years[ext]
-        else:  # cumulative
-            ann = scaling == "annual"
-            out[ann] = value[ann] * sim_years[ann]
-        return out
 
     def _unit(self, metric: str, entity: str) -> str:
         """Return the unit string recorded for a metric/entity, if any."""
@@ -418,9 +390,8 @@ class Comparison:
         self,
         metric: str,
         *,
-        view: str = "per_year",
         entity: str = "plant",
-        resolution: str = "total",
+        resolution: str = "annual",
         kind: str = "bar",
         ax=None,
         **kwargs,
@@ -429,10 +400,9 @@ class Comparison:
 
         Args:
             metric (str): Metric name to plot.
-            view (str): ``"per_year"`` or ``"cumulative"``. Defaults to
-                ``"per_year"``.
             entity (str): Entity to plot. Defaults to ``"plant"``.
-            resolution (str): Temporal resolution. Defaults to ``"total"``.
+            resolution (str): Temporal resolution -- ``"annual"`` (average per
+                year) or ``"total"`` (whole simulation). Defaults to ``"annual"``.
             kind (str): ``"bar"`` or ``"line"``. Defaults to ``"bar"``.
             ax (matplotlib.axes.Axes, optional): Existing axis. Defaults to None.
             **kwargs: Forwarded to the matplotlib call.
@@ -442,7 +412,7 @@ class Comparison:
         """
         import matplotlib.pyplot as plt
 
-        wide = self.table(metric, view=view, entity=entity, resolution=resolution)
+        wide = self.table(metric, entity=entity, resolution=resolution)
         values = wide[metric] if metric in wide.columns else wide.iloc[:, 0]
 
         if ax is None:
@@ -461,7 +431,7 @@ class Comparison:
 
         unit = self._unit(metric, entity)
         ylabel = f"{metric} ({unit})" if unit else metric
-        ax.set_ylabel(f"{ylabel} [{view}]")
+        ax.set_ylabel(f"{ylabel} [{resolution}]")
         ax.set_xticks(list(x))
         ax.set_xticklabels(wide.index, rotation=45, ha="right")
         ax.grid(True, axis="y")

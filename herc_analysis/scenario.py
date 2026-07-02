@@ -37,11 +37,14 @@ from herc_analysis.io import RunMeta, load_run
 from herc_analysis.metrics import MetricSet
 
 # Resolutions a Scenario can compute metrics at:
-#   total   -- one bucket for the whole run (cumulative total).
-#   annual  -- one bucket: the *average* annual value (extensive totals / sim_years).
+#   total   -- one bucket for the whole run: the value over the full simulation
+#              length (e.g. a 2-year run's extensive total is 2x its annual value).
+#   annual  -- one bucket: the *average* annual value (per year).
 #   yearly  -- per specific calendar year ("2024", "2025", ...).
 #   monthly -- per calendar month ("2024-03", ...).
 # Calendar resolutions (yearly, monthly) need a time_utc column.
+# `total` and `annual` are the two canonical views of the same quantity; both are
+# materialized from each metric's native value via `_value_at` (see below).
 SUPPORTED_RESOLUTIONS = ("total", "annual", "yearly", "monthly")
 _CALENDAR_RESOLUTIONS = ("yearly", "monthly")
 
@@ -90,25 +93,49 @@ _STORAGE_METRIC_SPECS = (
 )
 
 
+def _value_at(
+    native: float, scaling: str, resolution: str, sim_years: float | None
+) -> float:
+    """Convert a metric's native value to the ``total`` or ``annual`` resolution.
+
+    ``total`` is the value over the whole simulation length; ``annual`` is the
+    average value per year. The conversion depends only on the metric's intrinsic
+    ``scaling`` nature and the native value each nature stores:
+
+    * ``extensive`` -- native is the whole-run total.
+      total = native; annual = native / sim_years.
+    * ``intensive`` -- native is a rate/ratio, independent of run length.
+      total = annual = native.
+    * ``annual``    -- native is already a per-year figure (e.g. capacity-auction
+      revenue). annual = native; total = native * sim_years.
+    """
+    if resolution == "total":
+        if scaling == "annual":
+            return native * sim_years if sim_years else float("nan")
+        return native  # extensive stored as total; intensive unchanged.
+    # resolution == "annual"
+    if scaling == "extensive":
+        return native / sim_years if sim_years else float("nan")
+    return native  # intensive unchanged; annual already per-year.
+
+
 def _rows_from_nested(
     nested: dict, *, resolution: str, period: str, sim_years: float | None = None
 ) -> list[dict]:
     """Emit long-format rows for one nested metrics dict at one (resolution, period).
 
-    For ``resolution="annual"`` the values are the *average annual* figures: each
-    extensive metric is the whole-run total divided by ``sim_years`` (intensive
-    metrics are left as-is). The ``scaling`` tag always describes the metric's
-    intrinsic nature (energy is ``extensive`` at every resolution); it is the
-    *resolution* that records whether a value is a cumulative total or already
-    bucketed -- ``Comparison`` only applies the per_year/cumulative conversion to
-    ``total`` rows.
+    For ``resolution`` in ``("total", "annual")`` each metric's native value is
+    converted via :func:`_value_at` so that ``total`` holds the whole-simulation
+    value and ``annual`` holds the average per-year value. Other resolutions
+    (``yearly`` / ``monthly``) pass their natively-bucketed values through
+    unchanged. The ``scaling`` tag always describes the metric's intrinsic nature.
     """
-    annualize = resolution == "annual"
     rows: list[dict] = []
+    convert = resolution in ("total", "annual")
 
     def _row(entity, metric, value, unit, scaling):
-        if annualize and scaling == "extensive":
-            value = value / sim_years if sim_years else float("nan")
+        if convert:
+            value = _value_at(value, scaling, resolution, sim_years)
         rows.append(
             {
                 "entity": entity,
@@ -337,7 +364,7 @@ class Scenario:
         Emits the curated numeric metrics (plant, per-component, market) at each
         resolution in :attr:`resolutions` (default ``("total", "annual")``):
 
-        * ``total``  -- the whole-run cumulative total.
+        * ``total``  -- the value over the whole simulation length.
         * ``annual`` -- the *average* annual value (extensive totals / sim_years).
         * ``yearly`` -- per specific calendar year.
         * ``monthly``-- per calendar month.

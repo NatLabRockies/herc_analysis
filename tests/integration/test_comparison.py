@@ -45,13 +45,13 @@ def test_metric_set_matches_nested_metrics(scenarios):
     )
 
 
-def test_from_scenarios_table_annual_scaling(scenarios):
+def test_annual_resolution_is_per_year(scenarios):
     cmp = Comparison.from_scenarios(scenarios)
-    annual = cmp.table(["energy_mwh", "capacity_factor"], view="per_year")
+    annual = cmp.table(["energy_mwh", "capacity_factor"], resolution="annual")
     assert list(annual.index) == ["wind_only", "wind_storage"]
 
     for s in scenarios:
-        # extensive -> annual divides by sim_years.
+        # extensive -> annual is the whole-run total divided by sim_years.
         expected_energy = s.metric_set.scalar("plant", "energy_mwh") / s.meta.sim_years
         assert annual.loc[s.name, "energy_mwh"] == pytest.approx(expected_energy)
         # intensive -> unchanged between annual and total.
@@ -59,25 +59,24 @@ def test_from_scenarios_table_annual_scaling(scenarios):
         assert annual.loc[s.name, "capacity_factor"] == pytest.approx(cf)
 
 
-def test_total_view_equals_raw_for_extensive(scenarios):
+def test_total_resolution_is_whole_run_total(scenarios):
     cmp = Comparison.from_scenarios(scenarios)
-    total = cmp.table("energy_mwh", view="cumulative")
+    total = cmp.table("energy_mwh", resolution="total")
     for s in scenarios:
         assert total.loc[s.name, "energy_mwh"] == pytest.approx(
             s.metric_set.scalar("plant", "energy_mwh")
         )
 
 
-def test_annual_resolution_not_rescaled_by_view(scenarios):
-    """Already-annualized rows pass through unchanged under either view."""
+def test_total_equals_annual_times_sim_years(scenarios):
+    """For an extensive metric, total == annual * sim_years."""
     cmp = Comparison.from_scenarios(scenarios)
-    for view in ("per_year", "cumulative"):
-        wide = cmp.table("energy_mwh", view=view, resolution="annual")
-        for s in scenarios:
-            stored = s.metric_set.scalar(
-                "plant", "energy_mwh", resolution="annual", period="annual"
-            )
-            assert wide.loc[s.name, "energy_mwh"] == pytest.approx(stored)
+    annual = cmp.table("energy_mwh", resolution="annual")
+    total = cmp.table("energy_mwh", resolution="total")
+    for s in scenarios:
+        assert total.loc[s.name, "energy_mwh"] == pytest.approx(
+            annual.loc[s.name, "energy_mwh"] * s.meta.sim_years
+        )
 
 
 def test_from_cases_matches_from_scenarios(scenarios, tmp_path):
@@ -92,8 +91,8 @@ def test_from_cases_matches_from_scenarios(scenarios, tmp_path):
     from_scen = Comparison.from_scenarios(scenarios)
 
     metrics = ["energy_mwh", "capacity_factor", "revenue_rt"]
-    a = from_cases.table(metrics, view="per_year")
-    b = from_scen.table(metrics, view="per_year")
+    a = from_cases.table(metrics, resolution="annual")
+    b = from_scen.table(metrics, resolution="annual")
     pd.testing.assert_frame_equal(a, b, check_exact=False, rtol=1e-9)
 
 
@@ -115,7 +114,7 @@ def test_missing_required_columns_raises():
 def test_value_factor_nan_safe(scenarios):
     """wind_only has no LMP; value_factor is NaN and must not crash the table."""
     cmp = Comparison.from_scenarios(scenarios)
-    vf = cmp.table("value_factor", view="per_year")
+    vf = cmp.table("value_factor", resolution="annual")
     assert math.isnan(vf.loc["wind_only", "value_factor"]) or vf.loc[
         "wind_only", "value_factor"
     ] == pytest.approx(vf.loc["wind_only", "value_factor"])

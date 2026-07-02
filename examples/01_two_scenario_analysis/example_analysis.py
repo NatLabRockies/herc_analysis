@@ -39,10 +39,12 @@ def main():
     # Compare metrics across scenarios with the single Comparison engine.
     cmp = Comparison.from_scenarios(scenarios)
     print("\nAnnual plant comparison:")
-    print(cmp.table(["energy_mwh", "capacity_factor", "revenue_rt"], view="per_year"))
+    print(
+        cmp.table(["energy_mwh", "capacity_factor", "revenue_rt"], resolution="annual")
+    )
 
-    # Bar chart comparing total plant energy.
-    fig, _ = cmp.plot("energy_mwh", view="cumulative", color="steelblue")
+    # Bar chart comparing total (whole-simulation) plant energy.
+    fig, _ = cmp.plot("energy_mwh", resolution="total", color="steelblue")
     fig.savefig("outputs/energy_comparison.png")
     plt.close(fig)
 
