@@ -1,4 +1,4 @@
-"""Example 04 — Battery availability: adding a battery to the Hercules dataset.
+"""Example 05 — Battery availability: adding a battery to the Hercules dataset.
 
 Demonstrates compute_battery_availability using the Hercules simulation's time
 axis.  A hypothetical 20 MW / 4-hour battery is added; two scenarios are shown

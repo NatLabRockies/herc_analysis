@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 import pandas as pd
+import pytest
 
 from herc_analysis.metrics import METRIC_COLUMNS, MetricSet, MetricSpec
 
@@ -18,6 +19,15 @@ def _sample_rows() -> pd.DataFrame:
                 "resolution": "total",
                 "period": "total",
                 "value": 100.0,
+                "unit": "MWh",
+                "scaling": "extensive",
+            },
+            {
+                "entity": "plant",
+                "metric": "energy_mwh",
+                "resolution": "annual",
+                "period": "annual",
+                "value": 50.0,
                 "unit": "MWh",
                 "scaling": "extensive",
             },
@@ -66,6 +76,17 @@ def test_scalar_lookup_and_missing():
         == 7.0
     )
     assert math.isnan(ms.scalar("plant", "nonexistent"))
+
+
+def test_scalar_annual_defaults_to_annual_period():
+    ms = MetricSet(_sample_rows(), sim_years=2.0)
+    assert ms.scalar("plant", "energy_mwh", resolution="annual") == 50.0
+
+
+def test_scalar_calendar_resolution_requires_period():
+    ms = MetricSet(_sample_rows(), sim_years=2.0)
+    with pytest.raises(ValueError, match="period is required"):
+        ms.scalar("battery", "energy_mwh", resolution="monthly")
 
 
 def test_at_resolution():

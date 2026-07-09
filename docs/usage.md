@@ -37,10 +37,11 @@ cmp.table(["energy_mwh", "revenue_rt"], resolution="annual", entity="plant")
 cmp.plot("energy_mwh", resolution="total")
 ```
 
-`resolution` selects which view of each metric to compare: `"annual"` is the
-average value per year, `"total"` is the value over the whole simulation length.
+`resolution` selects which view of each metric to compare: `"total"` is the
+value over the whole simulation length, `"annual"` is the average value per year.
 Both are materialized up front, so the table just reads the requested rows — no
-rescaling at query time. `resolution` defaults to `"annual"`.
+rescaling at query time. `resolution` defaults to `"total"` (same as
+`MetricSet.scalar`).
 
 `Scenario` exposes metrics at several **resolutions** (choose with
 `Scenario(file, resolutions=...)`, default `("total", "annual")`):

@@ -105,7 +105,7 @@ class MetricSet:
         metric: str,
         *,
         resolution: str = "total",
-        period: str = "total",
+        period: str | None = None,
     ) -> float:
         """Look up a single metric value.
 
@@ -113,11 +113,25 @@ class MetricSet:
             entity (str): Entity name (``"plant"``, a category, or component).
             metric (str): Metric name.
             resolution (str): Temporal resolution. Defaults to ``"total"``.
-            period (str): Bucket within the resolution. Defaults to ``"total"``.
+            period (str, optional): Bucket within the resolution. Defaults to
+                the resolution's own single bucket for ``"total"`` / ``"annual"``
+                (their rows carry ``period == resolution``); must be given
+                explicitly for ``"yearly"`` / ``"monthly"``.
 
         Returns:
             float: The value, or NaN if no matching row exists.
+
+        Raises:
+            ValueError: If ``period`` is omitted for a calendar resolution
+                (``"yearly"`` / ``"monthly"``), which has many buckets.
         """
+        if period is None:
+            if resolution not in ("total", "annual"):
+                raise ValueError(
+                    f"period is required for resolution {resolution!r} "
+                    "(e.g. period='2024' or '2024-03')."
+                )
+            period = resolution
         m = self.rows
         hit = m[
             (m["entity"] == entity)
@@ -172,9 +186,10 @@ class MetricSet:
             resolution (str): Resolution to extract. Defaults to ``"total"``.
 
         Returns:
-            dict: ``{entity: {metric: value}}`` for the chosen resolution
-            (period ``"total"`` for the total resolution, else all periods are
-            collapsed to the first occurrence).
+            dict: ``{entity: {metric: value}}`` for the chosen resolution.
+            ``"total"`` / ``"annual"`` have a single period so the mapping is
+            unambiguous; for ``"yearly"`` / ``"monthly"`` each metric keeps the
+            value of the **last** period bucket (rows overwrite in order).
         """
         sub = self.rows[self.rows["resolution"] == resolution]
         nested: dict = {}

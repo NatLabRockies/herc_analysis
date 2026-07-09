@@ -1,8 +1,8 @@
 """Unit tests for the new L1 timeseries primitives.
 
-``interpolate_df`` / ``add_local_time`` keep their existing coverage in
-``tests/test_utilities.py`` (now importing them from ``herc_analysis.timeseries``);
-here we test the newly added primitives.
+``add_local_time`` keeps its existing coverage in ``tests/test_utilities.py``
+(importing it from ``herc_analysis.timeseries``); here we test the newly added
+primitives plus ``interpolate_df``.
 """
 
 import numpy as np
@@ -82,6 +82,24 @@ def test_period_labels_rejects_unknown():
         pass
     else:
         raise AssertionError("expected ValueError for unknown resolution")
+
+
+def test_interpolate_df_linear_between_points():
+    df = pd.DataFrame({"time": [0.0, 10.0], "v": [0.0, 100.0]})
+    out = timeseries.interpolate_df(
+        df, [0.0, 5.0, 10.0], "instantaneous_to_instantaneous"
+    )
+    np.testing.assert_allclose(out["v"].to_numpy(), [0.0, 50.0, 100.0])
+
+
+def test_interpolate_df_dedupes_repeated_times():
+    """Duplicate timestamps are dropped keep-first, so np.interp sees
+    strictly-increasing x-coordinates."""
+    df = pd.DataFrame({"time": [0.0, 10.0, 10.0, 20.0], "v": [0.0, 10.0, 999.0, 20.0]})
+    out = timeseries.interpolate_df(
+        df, [0.0, 10.0, 20.0], "instantaneous_to_instantaneous"
+    )
+    np.testing.assert_allclose(out["v"].to_numpy(), [0.0, 10.0, 20.0])
 
 
 def test_aggregate_metric_by_month():

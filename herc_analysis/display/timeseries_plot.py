@@ -97,16 +97,23 @@ def timeseries_figure(source, scenario_names: list[str] | None = None):
     """Build the interactive time-series plotter for a scenario (or list).
 
     Args:
-        source (Scenario | OutputAnalysis | list): A single ``Scenario`` /
-            ``OutputAnalysis``, or a list for the multi-scenario overlay mode.
+        source (Scenario | list): A single ``Scenario`` (or any object already
+            exposing the ``.df`` / ``.components`` / ``.interconnect_mw``
+            plot interface), or a list for the multi-scenario overlay mode.
         scenario_names (list[str], optional): Labels for multi-scenario plots.
             Defaults to None.
 
     Returns:
         PlotHerculesOutput: The plotter; call ``.plot_interactive(...)`` to
-        produce (and optionally save) the figure.
+        produce (and optionally save) the figure, or
+        ``.print_available_signals()`` to list plottable columns.
+
+    Raises:
+        ValueError: If ``source`` is an empty list.
     """
     if isinstance(source, list):
+        if not source:
+            raise ValueError("source list is empty; pass at least one Scenario.")
         adapted = [_adapt(s) for s in source]
     else:
         adapted = _adapt(source)

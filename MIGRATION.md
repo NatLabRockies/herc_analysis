@@ -81,9 +81,10 @@ Argument-level notes:
 - `Comparison.table(..., entity=...)` replaces `scope=...`; pass `entity="all"`
   for a `(entity, metric)` MultiIndex, or a list of entities.
 - `Comparison.table`/`plot` select the view purely through `resolution=`:
-  `"annual"` (default, average per year) or `"total"` (over the whole simulation
-  length). There is no separate `view` argument — the earlier `per_year` /
-  `cumulative` values are gone; use `resolution="annual"` / `"total"`.
+  `"total"` (default, over the whole simulation length) or `"annual"` (average
+  per year) — the same default as `MetricSet.scalar`. There is no separate
+  `view` argument — the earlier `per_year` / `cumulative` values are gone; use
+  `resolution="annual"` / `"total"`.
 - `Scenario(..., name=..., resolutions=("total", "annual"))` are new keyword args.
   Resolutions: `total` (value over the whole simulation length), `annual` (the
   *average* annual value = extensive totals ÷ `sim_years`), `yearly` (per specific
@@ -124,7 +125,8 @@ cap = MisoCapacity.from_scenario(
         rated_power_kw=..., rated_energy_kwh=..., min_soc=..., eta_discharge=...,
     )},
 )
-cap.report()
+report = cap.report()               # dict of result DataFrames
+cap.print_all_component_tables()    # human-readable per-component summary
 
 timeseries_figure(s).plot_interactive(save_file="outputs/timeseries.html")
 ```

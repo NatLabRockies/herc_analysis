@@ -10,8 +10,6 @@ COMPONENT_TYPE_TO_CATEGORY: dict[str, str] = {
     ctype: cls.component_category for ctype, cls in COMPONENT_REGISTRY.items()
 }
 
-VALID_CATEGORIES = frozenset({"generator", "load", "storage"})
-
 # MISO resource class per Hercules component type. Only types that map to a
 # class in the bundled resource-class CSVs participate in capacity accounting;
 # unmapped types (e.g. loads, playback) are intentionally excluded so they are

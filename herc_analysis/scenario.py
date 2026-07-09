@@ -12,7 +12,10 @@ Channels-frame convention (see the refactoring plan, sections 6.1/6.4): derived
 columns use ``{component}__{signal}`` (double underscore so component names may
 themselves contain underscores), plant-level columns use a ``plant__`` prefix,
 power stays in Hercules' kW convention (``__power_kw``), energy is MWh
-(``__energy_mwh``) and revenue is dollars (``__revenue_*_usd``).
+(``__energy_mwh``) and revenue is dollars (``__revenue_*_usd``). The market
+price columns (``lmp_rt``, ``lmp_da``, ``lmp_rt_hourly``) and the time axes
+(``time``, ``time_utc``) are intentional exceptions: they are run-wide inputs,
+not component or plant channels, and keep their plain names.
 
 Outputs are identical to the pre-refactor code: the ``metrics`` /
 ``monthly_metrics`` nested dicts reproduce the former
@@ -187,9 +190,10 @@ class Scenario:
                 ``"scenario"``.
             resolutions (tuple[str, ...], optional): Temporal resolutions the
                 ``metric_set`` exposes -- any of :data:`SUPPORTED_RESOLUTIONS`
-                (``"total"``, ``"annual"``, ``"monthly"``). Defaults to
-                ``("total", "annual")``; pass ``"monthly"`` explicitly to include
-                per-month rows. Calendar resolutions need a ``time_utc`` column.
+                (``"total"``, ``"annual"``, ``"yearly"``, ``"monthly"``).
+                Defaults to ``("total", "annual")``; pass ``"yearly"`` /
+                ``"monthly"`` explicitly to include per-year / per-month rows.
+                Calendar resolutions need a ``time_utc`` column.
 
         Raises:
             ValueError: If a requested resolution is not supported.
@@ -205,6 +209,14 @@ class Scenario:
         self.name = name or "scenario"
         self.resolutions = tuple(resolutions)
         self.components: list[ComponentInfo] = discover_components(self.output.h_dict)
+
+    def __repr__(self) -> str:
+        comps = ", ".join(c.name for c in self.components) or "none"
+        return (
+            f"Scenario(name={self.name!r}, components=[{comps}], "
+            f"sim_hours={self.meta.sim_hours:.1f}, "
+            f"interconnect_mw={self.meta.interconnect_mw:g})"
+        )
 
     # ------------------------------------------------------------------
     # Convenience views (no copies)
@@ -369,12 +381,16 @@ class Scenario:
         * ``yearly`` -- per specific calendar year.
         * ``monthly``-- per calendar month.
 
-        ``yearly`` / ``monthly`` are included only when explicitly requested, and
-        are skipped when the run has no ``time_utc`` column. This is the shape
-        ``Comparison`` consumes and what ``MetricSet.to_csv`` writes.
+        ``yearly`` / ``monthly`` are included only when explicitly requested,
+        and require a ``time_utc`` column. This is the shape ``Comparison``
+        consumes and what ``MetricSet.to_csv`` writes.
 
         Returns:
             MetricSet: Long-format metrics for this run.
+
+        Raises:
+            ValueError: If a calendar resolution (``"yearly"`` / ``"monthly"``)
+                was requested but the run has no ``time_utc`` column.
         """
         has_time = "time_utc" in self.channels.columns
         sim_years = self.meta.sim_years
@@ -392,7 +408,11 @@ class Scenario:
                 )
                 continue
             if resolution in _CALENDAR_RESOLUTIONS and not has_time:
-                continue
+                raise ValueError(
+                    f"resolution {resolution!r} requires a time_utc column, "
+                    "which this run does not have; drop it from "
+                    "Scenario(resolutions=...)."
+                )
             for period, nested in self.metrics_at(resolution).items():
                 rows.extend(
                     _rows_from_nested(nested, resolution=resolution, period=period)
@@ -417,10 +437,12 @@ class Scenario:
             work = work.drop_duplicates(subset=["time"], keep="first")
         work = work.reset_index(drop=True)
 
+        # Passthrough columns are copied so the cached channels frame never
+        # shares buffers with the raw scenario.output.df.
         df = pd.DataFrame(index=work.index)
-        df["time"] = work["time"]
+        df["time"] = work["time"].copy()
         if "time_utc" in work.columns:
-            df["time_utc"] = work["time_utc"]
+            df["time_utc"] = work["time_utc"].copy()
 
         lmp_rt, lmp_da = self._extract_lmp(work)
         df["lmp_rt"] = lmp_rt
@@ -440,7 +462,11 @@ class Scenario:
         return df, work
 
     def _extract_lmp(self, work: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
-        """Extract RT/DA LMP series, mirroring ``_process_external_signals``."""
+        """Extract RT/DA LMP series, mirroring ``_process_external_signals``.
+
+        Each side found in the raw columns is used independently; a missing
+        side falls back to zeros (so an RT-only run keeps its RT prices).
+        """
         zeros = pd.Series(0.0, index=work.index)
         if not self.output.h_dict.get("external_signals"):
             return zeros, zeros.copy()
@@ -452,9 +478,9 @@ class Scenario:
             elif "lmp_da" in col.lower():
                 lmp_da_col = col
 
-        if lmp_rt_col and lmp_da_col:
-            return work[lmp_rt_col], work[lmp_da_col]
-        return zeros, zeros.copy()
+        lmp_rt = work[lmp_rt_col].copy() if lmp_rt_col else zeros
+        lmp_da = work[lmp_da_col].copy() if lmp_da_col else zeros.copy()
+        return lmp_rt, lmp_da
 
     def _add_component_channels(
         self, df: pd.DataFrame, work: pd.DataFrame, comp: ComponentInfo
@@ -464,13 +490,13 @@ class Scenario:
 
         power_col = f"{name}.power"
         if power_col in work.columns:
-            df[_ch(name, "power_kw")] = work[power_col]
+            df[_ch(name, "power_kw")] = work[power_col].copy()
         else:
             df[_ch(name, "power_kw")] = 0.0
 
         setpoint_col = f"{name}.power_setpoint"
         if setpoint_col in work.columns:
-            df[_ch(name, "power_setpoint_kw")] = work[setpoint_col]
+            df[_ch(name, "power_setpoint_kw")] = work[setpoint_col].copy()
 
         energy = channels.energy_mwh(df[_ch(name, "power_kw")], self.meta.dt_s)
         df[_ch(name, "energy_mwh")] = energy
@@ -487,6 +513,9 @@ class Scenario:
             df[_ch(name, "revenue_da_excess_loss_usd")] = 0.0
 
         if comp.category == "storage":
+            # Note: these split *revenue* by the sign of *energy*, so
+            # channels.charge_discharge_split (which splits a series by its
+            # own sign) does not apply here.
             rev_rt = df[_ch(name, "revenue_rt_usd")]
             rev_da = df[_ch(name, "revenue_da_usd")]
             df[_ch(name, "revenue_rt_discharge_usd")] = rev_rt.where(energy > 0, 0.0)
@@ -506,7 +535,9 @@ class Scenario:
             df[_ch(name, "revenue_da_charge_savings_usd")] = 0.0
 
             soc_col = f"{name}.soc"
-            df[_ch(name, "soc")] = work[soc_col] if soc_col in work.columns else 0.0
+            df[_ch(name, "soc")] = (
+                work[soc_col].copy() if soc_col in work.columns else 0.0
+            )
 
     def _apply_excess(self, df: pd.DataFrame) -> None:
         """Apply both excess corrections via the single allocation primitive."""
@@ -617,6 +648,8 @@ class Scenario:
             "simulation_metadata": {
                 time_key: sim_time_s,
                 "interconnect_mw": meta.interconnect_mw,
+                # Key kept as "dt" (not dt_s) to preserve the pre-refactor
+                # nested-dict schema verified by the golden snapshots.
                 "dt": meta.dt_s,
                 "n_rows": n_rows,
             },
@@ -712,9 +745,10 @@ class Scenario:
     ) -> dict:
         """Storage-specific metric entries (splits, savings, TB4, mileage)."""
         energy = df[_ch(name, "energy_mwh")]
+        discharge, charge = channels.charge_discharge_split(energy)
         out: dict = {
-            "energy_discharge_mwh": reducers.total(energy.where(energy > 0, 0.0)),
-            "energy_charge_mwh": reducers.total(energy.where(energy < 0, 0.0)),
+            "energy_discharge_mwh": reducers.total(discharge),
+            "energy_charge_mwh": reducers.total(charge),
             "revenue_rt_discharge_k": reducers.total(
                 df[_ch(name, "revenue_rt_discharge_usd")]
             )

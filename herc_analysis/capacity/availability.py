@@ -31,7 +31,15 @@ class FixedAvailability:
         self.value_kw = value_kw
 
     def attach(self, df: pd.DataFrame, name: str) -> pd.DataFrame:
-        """Return a copy of ``df`` with a constant ``{name}__availability`` column."""
+        """Return a copy of ``df`` with a constant ``{name}__availability`` column.
+
+        Args:
+            df (pd.DataFrame): Frame to attach to.
+            name (str): Component name used for the output column.
+
+        Returns:
+            pd.DataFrame: A copy of ``df`` with the constant column added.
+        """
         out = df.copy()
         out[f"{name}__availability"] = self.value_kw
         return out
@@ -72,10 +80,34 @@ class FromRunAvailability:
         return pd.read_csv(path, parse_dates=[self.time_column])
 
     def attach(self, df: pd.DataFrame, name: str) -> pd.DataFrame:
-        """Return a copy of ``df`` with ``{name}__availability`` aligned by time."""
+        """Return a copy of ``df`` with ``{name}__availability`` aligned by time.
+
+        Args:
+            df (pd.DataFrame): Frame to attach to; must contain
+                ``time_column``.
+            name (str): Component name used for the output column.
+
+        Returns:
+            pd.DataFrame: A copy of ``df`` with the aligned
+            ``{name}__availability`` column.
+
+        Raises:
+            ValueError: If any ``df`` timestamp has no exact match in the
+                source (a silent NaN here would flow into the MISO
+                availability averaging).
+        """
         src = self._load()
         mapping = src.set_index(self.time_column)[self.source_column]
         out = df.copy()
+        unmatched = ~out[self.time_column].isin(mapping.index)
+        if unmatched.any():
+            n_missing = int(unmatched.sum())
+            raise ValueError(
+                f"{n_missing} of {len(out)} timestamps in the target frame "
+                f"have no exact match in the availability source "
+                f"({self.source_column!r}); align the source's "
+                f"{self.time_column!r} to the run's timestamps first."
+            )
         out[f"{name}__availability"] = out[self.time_column].map(mapping)
         return out
 
@@ -117,7 +149,17 @@ class BatteryAvailability:
         self.soc_column = soc_column
 
     def attach(self, df: pd.DataFrame, name: str) -> pd.DataFrame:
-        """Return a copy of ``df`` with a computed ``{name}__availability`` column."""
+        """Return a copy of ``df`` with a computed ``{name}__availability`` column.
+
+        Args:
+            df (pd.DataFrame): Frame with the battery power/SOC columns and a
+                ``time_utc`` column.
+            name (str): Component name used to resolve default column names
+                and for the output column.
+
+        Returns:
+            pd.DataFrame: A copy of ``df`` with the computed column added.
+        """
         power_column = self.power_column or f"{name}__power_kw"
         soc_column = self.soc_column or f"{name}__soc"
         out = compute_battery_availability(

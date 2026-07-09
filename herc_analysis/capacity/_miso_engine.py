@@ -255,8 +255,10 @@ def compute_battery_availability(
     if battery_soc_column not in df.columns:
         raise ValueError(f"DataFrame must contain a '{battery_soc_column}' column.")
 
-    # Make a copy of the dataframe
-    df_hour = df.copy()
+    # Make a copy of the dataframe, sorted chronologically so that the
+    # "first row per hour" transform below really is the start-of-hour value.
+    # (Index alignment carries the results back to the original row order.)
+    df_hour = df.copy().sort_values("time_utc")
 
     # Floor the time_utc column to the hour
     df_hour["time_utc"] = df_hour["time_utc"].dt.floor("h")
@@ -467,20 +469,28 @@ class MisoCapacity:
                     f"One or more components in {priority_order} not found in component_list: {component_list}"
                 )
             self.priority_order = dict.fromkeys(_SEASONS, priority_order)
-        # Else if, priority_order is a dict first confirm the keys are the four seasons
-        # and then confirm the values are lists of strings that overlap with component_list.
+        # Else if, priority_order is a dict first confirm the keys are exactly the
+        # four seasons, then confirm each value is a full ordering of
+        # component_list (a season or component omitted here would silently
+        # escape the interconnect cap).
         elif isinstance(priority_order, dict):
+            missing_seasons = [s for s in _SEASONS if s not in priority_order]
+            if missing_seasons:
+                raise ValueError(
+                    f"priority_order dict is missing season(s) {missing_seasons}; "
+                    f"all of {_SEASONS} must be present."
+                )
             if not all(season in _SEASONS for season in priority_order.keys()):
                 raise ValueError(
                     f"One or more seasons in {priority_order.keys()} not found in _SEASONS: {_SEASONS}"
                 )
-            if not all(
-                all(component in component_list for component in components)
-                for components in priority_order.values()
-            ):
-                raise ValueError(
-                    f"One or more components in {priority_order.values()} not found in component_list: {component_list}"
-                )
+            for season, components in priority_order.items():
+                if sorted(components) != sorted(component_list):
+                    raise ValueError(
+                        f"priority_order[{season!r}] must be an ordering of every "
+                        f"component in component_list {component_list}; "
+                        f"got {components}."
+                    )
             self.priority_order = priority_order
 
         # Limit the component availability contributions to the interconnect limit according to the priority order
@@ -633,6 +643,14 @@ class MisoCapacity:
         aaoc_column = f"aaoc_{self.subregion}"
 
         df_merge = pd.merge(df_hourly, df_ra, on="time_utc", how="inner")
+
+        n_dropped = len(df_hourly) - len(df_merge)
+        if n_dropped > 0 and self.verbose:
+            print(
+                f"MisoCapacity: {n_dropped} of {len(df_hourly)} simulation "
+                "hours fall outside the bundled MISO RA-hour table and were "
+                "dropped; planning-year hour counts shrink accordingly."
+            )
 
         # Coerce flag columns to clean booleans so callers can supply either
         # bool or 0/1 numeric reference tables without surprises.
@@ -1157,21 +1175,32 @@ class MisoCapacity:
         Sums :attr:`revenue_per_season` over all four seasons for each
         component.  Seasons absent from :attr:`revenue_per_season` contribute
         zero to the sum, so a component with partial-year data will show a
-        proportionally lower annual total.
+        proportionally lower annual total.  A component with **no** accredited
+        seasons at all (e.g. every planning year was dropped by the low-hour
+        filter) yields NaN rather than a misleading $0.
 
         Assumes :attr:`revenue_per_season` has already been populated.
 
         Returns:
             dict[str, float]: Mapping from component name to total annual
-            revenue in dollars.
+            revenue in dollars (NaN when the component has no accredited
+            seasons).
         """
-        return {
-            component: sum(
-                self.revenue_per_season.get((season, component), 0.0)
+        annual: dict[str, float] = {}
+        for component in self.component_list:
+            seasons_present = [
+                season
                 for season in _SEASONS
+                if (season, component) in self.revenue_per_season
+            ]
+            if not seasons_present:
+                annual[component] = float("nan")
+                continue
+            annual[component] = sum(
+                self.revenue_per_season[(season, component)]
+                for season in seasons_present
             )
-            for component in self.component_list
-        }
+        return annual
 
     def get_component_table(self, component: str) -> pd.DataFrame:
         """Build a per-season results table for a single component.

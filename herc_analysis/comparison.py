@@ -252,7 +252,8 @@ class Comparison:
         metrics: str | Sequence[str],
         *,
         entity: str | Sequence[str] = "plant",
-        resolution: str = "annual",
+        resolution: str = "total",
+        period: str | None = None,
     ) -> pd.DataFrame:
         """Build a wide comparison table (cases x metrics) at one resolution.
 
@@ -263,13 +264,23 @@ class Comparison:
                 list. Multiple entities produce a ``(entity, metric)`` column
                 MultiIndex. Defaults to ``"plant"``.
             resolution (str): Temporal resolution to read rows from --
-                ``"annual"`` (average per year), ``"total"`` (over the whole
-                simulation length), ``"yearly"`` or ``"monthly"``. Defaults to
-                ``"annual"``.
+                ``"total"`` (over the whole simulation length), ``"annual"``
+                (average per year), ``"yearly"`` or ``"monthly"``. Defaults to
+                ``"total"``.
+            period (str, optional): Bucket within the resolution (e.g.
+                ``"2024"`` or ``"2024-03"``). Not needed for ``"total"`` /
+                ``"annual"`` (single bucket); required for ``"yearly"`` /
+                ``"monthly"`` when the data spans multiple periods. Defaults
+                to None.
 
         Returns:
             pd.DataFrame: Cases (rows) by metrics (columns) of values at
             ``resolution``.
+
+        Raises:
+            ValueError: If the selection spans multiple period buckets and no
+                ``period`` was given (only possible for ``"yearly"`` /
+                ``"monthly"``).
         """
         if isinstance(metrics, str):
             metrics = [metrics]
@@ -280,10 +291,19 @@ class Comparison:
             (self.metrics["metric"].isin(metrics))
             & (self.metrics["resolution"] == resolution)
         ].copy()
+        if period is not None:
+            sub = sub[sub["period"] == period]
         if single:
             sub = sub[sub["entity"] == entity]
         elif isinstance(entity, (list, tuple)):
             sub = sub[sub["entity"].isin(entity)]
+
+        if period is None and sub["period"].nunique() > 1:
+            raise ValueError(
+                f"resolution {resolution!r} has multiple period buckets "
+                f"({sorted(sub['period'].unique())}); pass period=... to "
+                "select one."
+            )
 
         if sub.empty:
             if single:
@@ -293,17 +313,17 @@ class Comparison:
             else:
                 wide = pd.DataFrame(index=pd.Index(self.case_names, name="case"))
         else:
-            sub["scaled"] = sub["value"].astype(float)
+            sub["value"] = sub["value"].astype(float)
             if single:
                 wide = sub.pivot_table(
-                    index="case", columns="metric", values="scaled", aggfunc="first"
+                    index="case", columns="metric", values="value", aggfunc="first"
                 )
                 wide = wide.reindex(index=self.case_names, columns=list(metrics))
             else:
                 wide = sub.pivot_table(
                     index="case",
                     columns=["entity", "metric"],
-                    values="scaled",
+                    values="value",
                     aggfunc="first",
                 )
                 wide = wide.reindex(index=self.case_names)
@@ -391,7 +411,8 @@ class Comparison:
         metric: str,
         *,
         entity: str = "plant",
-        resolution: str = "annual",
+        resolution: str = "total",
+        period: str | None = None,
         kind: str = "bar",
         ax=None,
         **kwargs,
@@ -400,20 +421,36 @@ class Comparison:
 
         Args:
             metric (str): Metric name to plot.
-            entity (str): Entity to plot. Defaults to ``"plant"``.
-            resolution (str): Temporal resolution -- ``"annual"`` (average per
-                year) or ``"total"`` (whole simulation). Defaults to ``"annual"``.
+            entity (str): A single entity to plot (``"plant"`` or a component
+                name); ``"all"`` is ambiguous for a single-series plot and
+                raises. Defaults to ``"plant"``.
+            resolution (str): Temporal resolution -- ``"total"`` (whole
+                simulation), ``"annual"`` (average per year), ``"yearly"`` or
+                ``"monthly"``. Defaults to ``"total"``.
+            period (str, optional): Bucket within a calendar resolution (e.g.
+                ``"2024"``); see :meth:`table`. Defaults to None.
             kind (str): ``"bar"`` or ``"line"``. Defaults to ``"bar"``.
             ax (matplotlib.axes.Axes, optional): Existing axis. Defaults to None.
             **kwargs: Forwarded to the matplotlib call.
 
         Returns:
             tuple: ``(fig, ax)``.
+
+        Raises:
+            ValueError: If ``entity`` is not a single entity name, or ``kind``
+                is not ``"bar"`` / ``"line"``.
         """
         import matplotlib.pyplot as plt
 
-        wide = self.table(metric, entity=entity, resolution=resolution)
-        values = wide[metric] if metric in wide.columns else wide.iloc[:, 0]
+        if not isinstance(entity, str) or entity == "all":
+            raise ValueError(
+                "plot() draws one series and needs a single entity name "
+                "(e.g. entity='plant'); use table(entity='all') for the "
+                "multi-entity view."
+            )
+
+        wide = self.table(metric, entity=entity, resolution=resolution, period=period)
+        values = wide[metric]
 
         if ax is None:
             fig, ax = plt.subplots()

@@ -70,6 +70,35 @@ def test_timeseries_figure_multi_scenario(scenario):
     assert len(fig.data) > 0
 
 
+def test_timeseries_figure_rejects_empty_list():
+    with pytest.raises(ValueError, match="empty"):
+        display.timeseries_figure([])
+
+
+def test_timeseries_figure_is_quiet_by_default(scenario, capsys):
+    display.timeseries_figure(scenario)
+    assert capsys.readouterr().out == ""
+
+
+def test_plot_interactive_empty_date_range_raises(scenario):
+    plotter = display.timeseries_figure(scenario)
+    # The fixture spans Jan 2024; a 1999 window matches nothing.
+    with pytest.raises(ValueError, match="matches no rows"):
+        plotter.plot_interactive(
+            plot_dt=2,
+            date_range=["1999-01-01", "1999-01-02"],
+            save_file=None,
+            open_browser=False,
+        )
+
+
+def test_plot_hercules_output_not_exported_publicly():
+    import herc_analysis
+
+    assert not hasattr(herc_analysis, "PlotHerculesOutput")
+    assert not hasattr(display, "PlotHerculesOutput")
+
+
 def test_legacy_plot_df_uses_old_names(scenario):
     from herc_analysis.display.timeseries_plot import _legacy_plot_df
 

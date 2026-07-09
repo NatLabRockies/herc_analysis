@@ -111,6 +111,52 @@ def test_missing_required_columns_raises():
         Comparison(bad)
 
 
+def test_table_default_resolution_is_total(scenarios):
+    cmp = Comparison.from_scenarios(scenarios)
+    default = cmp.table("energy_mwh")
+    explicit = cmp.table("energy_mwh", resolution="total")
+    pd.testing.assert_frame_equal(default, explicit)
+
+
+def test_plot_rejects_entity_all(scenarios):
+    cmp = Comparison.from_scenarios(scenarios)
+    with pytest.raises(ValueError, match="single entity"):
+        cmp.plot("energy_mwh", entity="all")
+
+
+def _monthly_metrics_frame() -> pd.DataFrame:
+    rows = []
+    for case in ("a", "b"):
+        for period, value in (("2024-01", 1.0), ("2024-02", 2.0)):
+            rows.append(
+                {
+                    "case": case,
+                    "entity": "plant",
+                    "metric": "energy_mwh",
+                    "resolution": "monthly",
+                    "period": period,
+                    "value": value,
+                    "unit": "MWh",
+                    "scaling": "extensive",
+                    "sim_years": 1.0,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def test_table_monthly_requires_period():
+    cmp = Comparison(_monthly_metrics_frame())
+    with pytest.raises(ValueError, match="period"):
+        cmp.table("energy_mwh", resolution="monthly")
+
+
+def test_table_monthly_with_period_selects_bucket():
+    cmp = Comparison(_monthly_metrics_frame())
+    wide = cmp.table("energy_mwh", resolution="monthly", period="2024-02")
+    assert wide.loc["a", "energy_mwh"] == 2.0
+    assert wide.loc["b", "energy_mwh"] == 2.0
+
+
 def test_value_factor_nan_safe(scenarios):
     """wind_only has no LMP; value_factor is NaN and must not crash the table."""
     cmp = Comparison.from_scenarios(scenarios)

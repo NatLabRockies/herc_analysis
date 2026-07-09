@@ -25,7 +25,6 @@ from .constants import COMPONENT_TYPE_TO_MISO_CLASS as COMPONENT_TYPE_TO_MISO_CL
 from .constants import PTC_PRICE as PTC_PRICE
 from .constants import ComponentInfo as ComponentInfo
 from .constants import SignalSubplot as SignalSubplot
-from .display import PlotHerculesOutput as PlotHerculesOutput
 from .display import plot_boxplot_by_year as plot_boxplot_by_year
 from .display import plot_correlation as plot_correlation
 from .display import plot_diurnal as plot_diurnal

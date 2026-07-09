@@ -44,6 +44,7 @@ def main():
     )
 
     # Bar chart comparing total (whole-simulation) plant energy.
+    Path("outputs").mkdir(exist_ok=True)
     fig, _ = cmp.plot("energy_mwh", resolution="total", color="steelblue")
     fig.savefig("outputs/energy_comparison.png")
     plt.close(fig)

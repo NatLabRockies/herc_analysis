@@ -1,9 +1,11 @@
 # Examples
 
 These examples demonstrate the core analysis workflow provided by `herc_analysis`.
-They use pre-computed HERCULES simulation outputs that are committed with this
-repository under `stored_hercules_output/`, so there is no need to run HERCULES
-first.
+Examples 00, 01, and 05 use pre-computed HERCULES simulation outputs that are
+committed with this repository under `stored_hercules_output/`, so there is no
+need to run HERCULES first. Examples 02 and 04 additionally need a year-long
+`hercules_output.h5` placed in `02_miso_capacity_analysis_wind/` (not
+committed; see that folder's `readme.md`).
 
 ## 00 -- Single Scenario Analysis
 

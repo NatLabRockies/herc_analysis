@@ -39,16 +39,31 @@ class PlotHerculesOutput:
         self,
         output_analysis,
         scenario_names: list[str] | None = None,
+        *,
+        verbose: bool = False,
     ):
-        """Initialize with one or more OutputAnalysis objects.
+        """Initialize with one or more plot-frame sources.
 
         Args:
-            output_analysis (OutputAnalysis | list[OutputAnalysis]): Single or
-                list of OutputAnalysis objects.
+            output_analysis: A plot-frame adapter (an object with ``.df``,
+                ``.components`` and ``.interconnect_mw``, as built by
+                :func:`herc_analysis.display.timeseries_figure` from a
+                ``Scenario``), or a list of them.
             scenario_names (list[str], optional): Scenario labels.
                 Defaults to None.
+            verbose (bool): Print the available plot signals on construction.
+                Defaults to False; call :meth:`print_available_signals`
+                explicitly to list them.
+
+        Raises:
+            ValueError: If ``output_analysis`` is an empty list, or
+                ``scenario_names`` length does not match.
         """
         if isinstance(output_analysis, list):
+            if not output_analysis:
+                raise ValueError(
+                    "output_analysis list is empty; pass at least one scenario."
+                )
             self.output_analyses = output_analysis
             self.is_multi_scenario = True
             if scenario_names is None:
@@ -66,7 +81,8 @@ class PlotHerculesOutput:
             self.is_multi_scenario = False
             self.scenario_names = ["Scenario 1"]
 
-        self.print_available_signals()
+        if verbose:
+            self.print_available_signals()
 
     # ------------------------------------------------------------------
     # Discovery helpers
@@ -314,6 +330,9 @@ class PlotHerculesOutput:
             fig.update_yaxes(showgrid=True, row=i, col=1)
 
         if save_file is not None:
+            save_dir = os.path.dirname(save_file)
+            if save_dir:
+                os.makedirs(save_dir, exist_ok=True)
             fig.write_html(save_file)
             print(f"Interactive plot saved as: {save_file}")
             if os.path.exists(save_file):
@@ -861,7 +880,13 @@ class PlotHerculesOutput:
         mask = (df["time_utc"].dt.date >= start.date()) & (
             df["time_utc"].dt.date <= end.date()
         )
-        return df[mask].copy()
+        out = df[mask].copy()
+        if out.empty:
+            raise ValueError(
+                f"date_range {date_range} matches no rows; the run spans "
+                f"{df['time_utc'].min()} to {df['time_utc'].max()}."
+            )
+        return out
 
     @staticmethod
     def _downsample_data(df, plot_dt):

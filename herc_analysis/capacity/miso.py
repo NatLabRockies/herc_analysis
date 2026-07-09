@@ -168,10 +168,47 @@ class MisoCapacity(CapacityBase):
     # Pass-through to the underlying engine
     # ------------------------------------------------------------------
 
+    #: Engine helpers intentionally exposed on the wrapper (tables, plots,
+    #: result dicts and the two staged hourly frames used for diagnostics).
+    #: Anything else on the private engine stays private.
+    _ENGINE_PASSTHROUGH = frozenset(
+        {
+            # Tables / printing / getters
+            "get_capacity_report",
+            "get_component_table",
+            "get_totals_table",
+            "get_total_revenue",
+            "get_component_revenue",
+            "print_all_component_tables",
+            "print_annual_revenue",
+            # Plots
+            "plot_sac_stacked_bar",
+            "plot_revenue_stacked_bar",
+            "plot_isac_availability_bar",
+            "plot_isac_hourly_scatter",
+            # Result dicts
+            "sac_mw",
+            "isac_mw",
+            "zrc_mw",
+            "annual_revenue",
+            "revenue_per_season",
+            "pra_prices",
+            "days_per_season",
+            "hours_per_planning_year_season",
+            # Staged hourly frames (diagnostics; see example 01)
+            "df_h_mw",
+            "df_h_limit_mw",
+        }
+    )
+
     def __getattr__(self, name: str):
         # Only reached for attributes not found on the wrapper itself; delegate
-        # to the engine so existing helpers (plots, tables, getters) work.
+        # a curated set of engine helpers (plots, tables, result dicts).
         engine = self.__dict__.get("_engine")
-        if engine is None:
-            raise AttributeError(name)
+        if engine is None or name not in self._ENGINE_PASSTHROUGH:
+            raise AttributeError(
+                f"{type(self).__name__!s} has no attribute {name!r}; "
+                "engine internals are private (use .accredit(), .revenue(), "
+                ".report(), or one of the documented helpers)."
+            )
         return getattr(engine, name)

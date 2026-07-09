@@ -235,3 +235,43 @@ def test_yearly_resolution_buckets_per_year(fixture_h5):
 def test_unsupported_resolution_rejected(fixture_h5):
     with pytest.raises(ValueError, match="Unsupported resolution"):
         Scenario(fixture_h5, resolutions=("weekly",))
+
+
+def test_calendar_resolution_without_time_utc_raises(fixture_h5):
+    s = Scenario(fixture_h5, resolutions=("total", "monthly"))
+    # Simulate a run with no wall-clock axis by dropping time_utc from the
+    # cached channels frame.
+    s.__dict__["channels"] = s.channels.drop(columns=["time_utc"])
+    with pytest.raises(ValueError, match="time_utc"):
+        _ = s.metric_set
+
+
+def test_rt_only_lmp_is_kept(tmp_path):
+    """A run with only an RT LMP column keeps RT prices (DA falls back to 0)."""
+    import h5py
+
+    path = tmp_path / "hercules_output.h5"
+    _create_test_h5(str(path))
+    with h5py.File(path, "a") as hf:
+        del hf["data/external_signals/external_signals.lmp_da"]
+
+    s = Scenario(str(path))
+    assert (s.channels["lmp_rt"] == 10.0).all()
+    assert (s.channels["lmp_da"] == 0.0).all()
+
+
+def test_channels_do_not_alias_raw_frame(fixture_h5):
+    """In-place edits to the raw output frame never leak into cached channels."""
+    s = Scenario(fixture_h5)
+    before = s.channels["battery__power_kw"].copy()
+    s.output.df.loc[:, "battery.power"] = -12345.0
+    pd.testing.assert_series_equal(
+        s.channels["battery__power_kw"], before, check_names=False
+    )
+
+
+def test_scenario_repr_mentions_name_and_components(fixture_h5):
+    s = Scenario(fixture_h5, name="my_run")
+    text = repr(s)
+    assert "my_run" in text
+    assert "wind_farm" in text

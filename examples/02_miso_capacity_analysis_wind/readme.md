@@ -5,6 +5,11 @@ Dakota (MISO Zone 1) covering roughly Aug 2023 → Sep 2024 — fully spanning
 MISO planning year 2324 (Sept 1, 2023 → Aug 31, 2024) plus partial fringes
 of PY 2223 and PY 2425.
 
+> **Note:** unlike the data under `stored_hercules_output/`, this h5 file is
+> **not committed** to the repository (`*.h5` is gitignored here). Place a
+> year-long `hercules_output.h5` in this directory before running these
+> scripts (example `04_input_signal_analysis` reads the same file).
+
 ## Scripts
 
 - `01_demo_interconnect_limit.py` — effect of an interconnect limit on

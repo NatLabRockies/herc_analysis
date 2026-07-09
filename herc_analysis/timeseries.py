@@ -1,12 +1,13 @@
 """Shared time-series primitives. Pure functions, no object state.
 
 This module is the single home for the genuinely-shared time helpers that were
-previously split across ``utilities.py`` and ``miso_capacity.py``:
+previously split across the removed ``utilities.py`` and ``miso_capacity.py``
+modules:
 
-* ``interpolate_df`` / ``add_local_time`` -- moved verbatim from
-  ``utilities.py`` (which now re-exports them for back-compat).
-* ``planning_year`` -- the MISO Sept-1-EST planning-year mapping
-  (``miso_capacity`` re-exports it as ``_time_to_planning_year``).
+* ``interpolate_df`` / ``add_local_time`` -- moved verbatim from the former
+  ``utilities.py``.
+* ``planning_year`` -- the MISO Sept-1-EST planning-year mapping (formerly
+  ``miso_capacity._time_to_planning_year``).
 * ``to_hourly`` -- the floor-to-hour + groupby aggregation primitive.
 * ``period_labels`` / ``aggregate_metric`` -- the single periodization
   primitive behind the general resolution axis (total / annual / monthly / ...).
@@ -182,8 +183,14 @@ def interpolate_df(df, new_time, interpolation_method):
     # Sort by "time" once up front so that np.interp (which requires
     # strictly-increasing x-coordinates) sees monotonic input for every
     # column.  Applying the sort in one place keeps numeric and datetime
-    # columns consistently ordered.
-    df_pl = pl.from_pandas(df).sort("time")
+    # columns consistently ordered.  Duplicate timestamps are dropped
+    # (keep-first, the same policy as Scenario's raw-frame dedupe) because
+    # np.interp gives undefined results on repeated x values.
+    df_pl = (
+        pl.from_pandas(df)
+        .sort("time")
+        .unique(subset="time", keep="first", maintain_order=True)
+    )
     result_pl = pl.DataFrame({"time": new_time})
 
     time_values = df_pl["time"].to_numpy()
@@ -226,8 +233,9 @@ def planning_year(time_utc: pd.Series) -> pd.Series:
     timestamps are shifted by -5 hours before extracting the calendar
     year/month and applying the Sept boundary.
 
-    Moved here from ``miso_capacity._time_to_planning_year`` (which now
-    re-exports this function) so the planning-year mapping has a single home.
+    Moved here from the former ``miso_capacity._time_to_planning_year`` (the
+    capacity engine now wraps this function) so the planning-year mapping has
+    a single home.
 
     Args:
         time_utc (pd.Series): Timezone-aware UTC timestamps.

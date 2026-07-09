@@ -81,6 +81,19 @@ def test_pass_through_to_engine_helpers():
     assert new.get_total_revenue() == pytest.approx(sum(new.revenue().values()))
 
 
+def test_pass_through_blocks_engine_internals():
+    new = MisoCapacity(
+        ["a", "b"],
+        ["wind", "wind"],
+        _frame_48h(),
+        zone=1,
+        interconnect_limit=100_000.0,
+        remove_low_hour_planning_years=False,
+    )
+    with pytest.raises(AttributeError, match="private"):
+        _ = new._compute_annual_revenue
+
+
 def test_to_metrics_schema_and_total():
     sim_years = 2.0
     new = MisoCapacity(
