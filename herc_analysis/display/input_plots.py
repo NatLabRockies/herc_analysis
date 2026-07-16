@@ -7,7 +7,8 @@ time series.
 
 All functions assume the input DataFrame contains a ``time_utc`` column with
 timezone-aware UTC timestamps (as produced by ``pd.to_datetime(..., utc=True)``
-or by ``OutputAnalysis``).  Functions never mutate the input DataFrame.
+or found on ``Scenario.channels`` / ``Scenario.output.df``).  Functions never
+mutate the input DataFrame.
 """
 
 from __future__ import annotations
@@ -394,7 +395,7 @@ def plot_diurnal(
 
             warnings.warn(
                 f"'{time_col}' not in DataFrame; falling back to 'time_utc'. "
-                "Call herc_analysis.utilities.add_local_time(df, lat, lon) "
+                "Call herc_analysis.timeseries.add_local_time(df, lat, lon) "
                 "to get a 'time_local' column.",
                 stacklevel=2,
             )

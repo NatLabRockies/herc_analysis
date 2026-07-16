@@ -1,7 +1,7 @@
 # Example: Cross-Scenario Comparison
 
-Demonstrates `ScenarioComparison`, the generic engine for comparing metrics
-across many simulation cases.
+Demonstrates `Comparison`, the single engine for comparing metrics across many
+simulation cases.
 
 The two bundled stored simulations are treated as two cases:
 
@@ -10,32 +10,31 @@ The two bundled stored simulations are treated as two cases:
 
 `example_scenario_compare.py` shows the full workflow:
 
-1. Write a tidy per-case `outputs/metrics.csv` (the schema the engine reads):
-   `scope, metric, value, unit, scaling, sim_years`.
-2. Collect the per-case files with `ScenarioComparison.from_cases`.
-3. Build `annual` and `total` comparison tables, selecting metrics and a scope
-   (`plant`, a component name, or `all`). Scaling is handled automatically via
-   each metric's `scaling` tag (`extensive`, `intensive`, or `annual`).
-4. Render a `great_tables` table (optional dependency) and a per-metric plot
-   across cases.
+1. Build a `Scenario` per case and write its long-format `outputs/metrics.csv`
+   via `scenario.metric_set.to_csv(...)` (schema:
+   `entity, metric, resolution, period, value, unit, scaling, sim_years`).
+2. Collect the per-case files with `Comparison.from_cases` (or compare live
+   `Scenario` objects with `Comparison.from_scenarios`).
+3. Build comparison tables, selecting metrics, an `entity` (`plant`, a component
+   name, or `all`) and a `resolution` (`annual` — average per year, or `total` —
+   over the whole simulation length). Both resolutions are materialized up front,
+   so the table just reads the requested rows.
+4. Render a `great_tables` table and a per-metric plot across cases.
 
 ```bash
 cd examples/05_scenario_comparison
 python example_scenario_compare.py
 ```
 
-In a real project the tidy `metrics.csv` is produced by a headless analysis
-script. `ScenarioComparison` can run that script in each case for you:
+In a real project the per-case `metrics.csv` is produced by a headless analysis
+script. `Comparison` can run that script in each case for you:
 
 ```python
-sc = ScenarioComparison.from_cases(
+cmp = Comparison.from_cases(
     cases,
     run_script="compute_metrics.py",  # copied into each case and run headless
 )
 ```
 
-The `great_tables` rendering requires the optional extra:
-
-```bash
-pip install great-tables   # or: pip install herc_analysis[tables]
-```
+`great-tables` is a core dependency, so `to_great_table(...)` works out of the
+box (no extra install).

@@ -30,26 +30,6 @@ INFRASTRUCTURE_COLORS = {
     "market_da": "#696969",
 }
 
-# Turbine-level detail colours (cycled for array signals)
-DETAIL_PALETTES: dict[str, list[str]] = {
-    "turbine_powers": [
-        "#4682b4",
-        "#6495ed",
-        "#1e90ff",
-        "#0077be",
-        "#5f9ea0",
-        "#00bfff",
-    ],
-    "wind_speed": [
-        "#5da5db",  # background
-        "#0d5aa7",  # waked
-    ],
-    "irradiance": [
-        "#ffa500",
-        "#ff8c00",
-    ],
-}
-
 
 def get_component_color(category: str, index: int = 0) -> str:
     """Return a colour for a component given its category and instance index.
@@ -62,18 +42,4 @@ def get_component_color(category: str, index: int = 0) -> str:
         str: Hex colour string.
     """
     palette = CATEGORY_PALETTES.get(category, CATEGORY_PALETTES["generator"])
-    return palette[index % len(palette)]
-
-
-def get_detail_color(signal: str, index: int = 0) -> str:
-    """Return a colour for a detail signal subplot.
-
-    Args:
-        signal (str): Signal family name (e.g. 'turbine_powers', 'wind_speed').
-        index (int, optional): Sub-index within the signal. Defaults to 0.
-
-    Returns:
-        str: Hex colour string.
-    """
-    palette = DETAIL_PALETTES.get(signal, CATEGORY_PALETTES["generator"])
     return palette[index % len(palette)]

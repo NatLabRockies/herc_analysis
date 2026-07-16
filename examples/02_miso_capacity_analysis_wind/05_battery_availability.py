@@ -1,4 +1,4 @@
-"""Example 04 — Battery availability: adding a battery to the Hercules dataset.
+"""Example 05 — Battery availability: adding a battery to the Hercules dataset.
 
 Demonstrates compute_battery_availability using the Hercules simulation's time
 axis.  A hypothetical 20 MW / 4-hour battery is added; two scenarios are shown
@@ -22,8 +22,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from herc_analysis import OutputAnalysis
-from herc_analysis.miso_capacity import compute_battery_availability
+from herc_analysis import Scenario
+from herc_analysis.capacity import compute_battery_availability
 
 DATA_DIR = Path(__file__).parent
 
@@ -32,8 +32,8 @@ BATTERY_RATED_ENERGY_KWH = 80_000.0  # kWh (80 MWh — 4-hour duration)
 BATTERY_MIN_SOC = 0.1
 ETA_DISCHARGE = 0.95
 
-oa = OutputAnalysis(DATA_DIR / "hercules_output.h5")
-df_base = oa.df[["time_utc", "wind_farm.power"]].copy()
+oa = Scenario(DATA_DIR / "hercules_output.h5")
+df_base = oa.output.df[["time_utc", "wind_farm.power"]].copy()
 
 # ── Scenario A: idle battery, always fully charged ───────────────────────────
 df_a = df_base.copy()

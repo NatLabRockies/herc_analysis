@@ -12,13 +12,13 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from herc_analysis import OutputAnalysis
-from herc_analysis.miso_capacity import plot_planning_year_coverage
+from herc_analysis import Scenario
+from herc_analysis.capacity import plot_planning_year_coverage
 
 DATA_DIR = Path(__file__).parent
 
-oa = OutputAnalysis(DATA_DIR / "hercules_output.h5")
-df_raw = oa.df[
+oa = Scenario(DATA_DIR / "hercules_output.h5")
+df_raw = oa.output.df[
     [
         "time_utc",
         "wind_farm.power",

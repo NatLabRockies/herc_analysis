@@ -1,4 +1,4 @@
-"""Tests for herc_analysis.miso_capacity.
+"""Tests for the MISO capacity engine (herc_analysis.capacity._miso_engine).
 
 Organised from small building blocks to larger integration:
   1. Helpers and shared fixtures
@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from herc_analysis.miso_capacity import (
+from herc_analysis.capacity._miso_engine import (
     RA_HOURS_CSV_PATH,
     MisoCapacity,
 )
@@ -216,6 +216,27 @@ def test_limit_priority_order_dict_varies_by_season():
     df_by_season = mc.df_h_limit_mw.set_index("season")[["a", "b"]]
     np.testing.assert_allclose(df_by_season.loc["winter"].to_numpy(), [4.0, 2.0])
     np.testing.assert_allclose(df_by_season.loc["summer"].to_numpy(), [2.0, 4.0])
+
+
+def test_priority_order_dict_missing_season_raises():
+    """A dict priority_order must name all four seasons explicitly."""
+    df = _make_hourly_df(
+        "2024-01-01 00:00", 2, {"a": [1000.0, 1000.0], "b": [1000.0, 1000.0]}
+    )
+    with pytest.raises(ValueError, match="missing season"):
+        _make_capacity(
+            df, interconnect_limit=10000.0, priority_order={"winter": ["a", "b"]}
+        )
+
+
+def test_priority_order_dict_incomplete_components_raises():
+    """Each season's list must order every component (none may be omitted)."""
+    df = _make_hourly_df(
+        "2024-01-01 00:00", 2, {"a": [1000.0, 1000.0], "b": [1000.0, 1000.0]}
+    )
+    priority = {s: ["a"] for s in ("summer", "fall", "winter", "spring")}
+    with pytest.raises(ValueError, match="every.*component"):
+        _make_capacity(df, interconnect_limit=10000.0, priority_order=priority)
 
 
 def test_limit_does_not_mutate_input_df():
@@ -613,6 +634,20 @@ def test_annual_revenue_sums_seasonal_revenues():
             for season in ("summer", "fall", "winter", "spring")
         )
         np.testing.assert_allclose(mc.annual_revenue[component], expected, rtol=1e-9)
+
+
+def test_annual_revenue_nan_when_all_planning_years_dropped():
+    """With every planning year dropped, annual revenue is NaN, not $0.
+
+    A $0 would look like a real (terrible) result; NaN signals "no
+    accredited data", matching MIGRATION.md's troubleshooting guidance.
+    """
+    df = _make_hourly_df("2022-09-01 05:00", 48, {"a": np.linspace(1.0, 4.0, 48)})
+    mc = _make_capacity(
+        df, interconnect_limit=100.0, remove_low_hour_planning_years=True
+    )
+    assert mc.df_h_limit_mw.empty
+    assert np.isnan(mc.annual_revenue["a"])
 
 
 def test_revenue_per_season_units_are_dollars():

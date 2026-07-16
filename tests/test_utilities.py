@@ -1,9 +1,9 @@
-"""Tests for herc_analysis.utilities."""
+"""Tests for the shared time helpers (herc_analysis.timeseries)."""
 
 import pandas as pd
 import pytest
 
-from herc_analysis.utilities import add_local_time
+from herc_analysis.timeseries import add_local_time
 
 # New York City coordinates -> America/New_York timezone.
 NYC_LAT = 40.7128

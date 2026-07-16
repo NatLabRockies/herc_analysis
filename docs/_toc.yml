@@ -7,3 +7,6 @@ parts:
   - caption: Installation
     chapters:
     - file: install
+  - caption: User Guide
+    chapters:
+    - file: usage

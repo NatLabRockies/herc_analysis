@@ -14,16 +14,16 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from herc_analysis import OutputAnalysis
-from herc_analysis.miso_capacity import MisoCapacity
+from herc_analysis import Scenario
+from herc_analysis.capacity import MisoCapacity
 
 DATA_DIR = Path(__file__).parent
 ZONE = 1
 REAL_LIMIT_KW = 61_500.0  # actual plant interconnect (kW)
 TIGHT_LIMIT_KW = 30_000.0  # reduced for illustration (kW)
 
-oa = OutputAnalysis(DATA_DIR / "hercules_output.h5")
-df_raw = oa.df[["time_utc", "wind_farm.power"]].copy()
+oa = Scenario(DATA_DIR / "hercules_output.h5")
+df_raw = oa.output.df[["time_utc", "wind_farm.power"]].copy()
 
 # Build two MisoCapacity objects — one at each limit.
 mc_real = MisoCapacity(

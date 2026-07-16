@@ -19,15 +19,15 @@ Table rows (per season):
 
 from pathlib import Path
 
-from herc_analysis import OutputAnalysis
-from herc_analysis.miso_capacity import MisoCapacity
+from herc_analysis import Scenario
+from herc_analysis.capacity import MisoCapacity
 
 DATA_DIR = Path(__file__).parent
 ZONE = 1
 INTERCONNECT_LIMIT_KW = 61_500.0  # kW
 
-oa = OutputAnalysis(DATA_DIR / "hercules_output.h5")
-df_raw = oa.df[["time_utc", "wind_farm.power"]].copy()
+oa = Scenario(DATA_DIR / "hercules_output.h5")
+df_raw = oa.output.df[["time_utc", "wind_farm.power"]].copy()
 
 mc = MisoCapacity(
     component_list=["wind_farm.power"],
